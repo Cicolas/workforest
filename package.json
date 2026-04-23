@@ -1,0 +1,12 @@
+{
+  "name": "workforest",
+  "version": "0.1.0",
+  "description": "CLI helpers for managing Git worktree development flows.",
+  "type": "module",
+  "bin": {
+    "wf": "./bin/wf"
+  },
+  "scripts": {
+    "test": "bun test"
+  }
+}
