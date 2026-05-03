@@ -15,19 +15,29 @@ interface CommandResult {
   stderr: string;
 }
 
-function runGitCommand(cwd: string, args: string[]): CommandResult {
-  const result = Bun.spawnSync({
-    cmd: ["git", ...args],
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+export function runGit(cwd: string, args: string[]): CommandResult {
+  try {
+    const result = Bun.spawnSync({
+      cmd: ["git", ...args],
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
 
-  return {
-    success: result.exitCode === 0,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-  };
+    return {
+      success: result.exitCode === 0,
+      stdout: result.stdout.toString().trim(),
+      stderr: result.stderr.toString().trim(),
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to run git";
+    return {
+      success: false,
+      stdout: "",
+      stderr: message,
+    };
+  }
 }
 
 function parseRepoName(remoteUrl: string, repoRoot: string): string {
@@ -48,7 +58,11 @@ function parseRepoName(remoteUrl: string, repoRoot: string): string {
 }
 
 function parseMainWorktreeRoot(cwd: string): string | null {
-  const commonDirResult = runGitCommand(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const commonDirResult = runGit(cwd, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
 
   if (!commonDirResult.success || !commonDirResult.stdout) {
     return null;
@@ -57,7 +71,10 @@ function parseMainWorktreeRoot(cwd: string): string | null {
   return dirname(commonDirResult.stdout);
 }
 
-function parseBranchName(rawBranch: string | undefined, detached: boolean): string | null {
+function parseBranchName(
+  rawBranch: string | undefined,
+  detached: boolean,
+): string | null {
   if (detached || !rawBranch) {
     return null;
   }
@@ -65,7 +82,10 @@ function parseBranchName(rawBranch: string | undefined, detached: boolean): stri
   return rawBranch.replace(/^refs\/heads\//, "");
 }
 
-export function parseWorktreeList(raw: string, mainWorktreeRoot: string | null): WorktreeEntry[] {
+export function parseWorktreeList(
+  raw: string,
+  mainWorktreeRoot: string | null,
+): WorktreeEntry[] {
   const blocks = raw
     .trim()
     .split(/\n\n+/)
@@ -97,35 +117,38 @@ export function parseWorktreeList(raw: string, mainWorktreeRoot: string | null):
     worktrees.push({
       path: resolvedPath,
       branch: parseBranchName(rawBranch, detached),
-      isMain: mainWorktreeRoot === null ? worktrees.length === 0 : resolvedPath === resolve(mainWorktreeRoot),
+      isMain:
+        mainWorktreeRoot === null
+          ? worktrees.length === 0
+          : resolvedPath === resolve(mainWorktreeRoot),
     });
   }
 
   return worktrees;
 }
 
-export function discoverRepo(cwd: string): RepoDiscovery {
-  const repoRootResult = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
+export function discoverRepo(gitCwd: string): RepoDiscovery {
+  const resolvedGitCwd = resolve(gitCwd);
+  const repoRootResult = runGit(resolvedGitCwd, [
+    "rev-parse",
+    "--show-toplevel",
+  ]);
 
-  if (!repoRootResult.success) {
-    const resolvedCwd = resolve(cwd);
-    return {
-      isGitRepo: false,
-      repoName: basename(resolvedCwd),
-      repoRoot: resolvedCwd,
-      activeWorktrees: [
-        {
-          path: resolvedCwd,
-          branch: null,
-          isMain: true,
-        },
-      ],
-    };
+  if (!repoRootResult.success || !repoRootResult.stdout) {
+    throw new Error(`Not a git repository: ${resolvedGitCwd}`);
   }
 
   const repoRoot = resolve(repoRootResult.stdout);
-  const remoteUrlResult = runGitCommand(cwd, ["config", "--get", "remote.origin.url"]);
-  const worktreeListResult = runGitCommand(cwd, ["worktree", "list", "--porcelain"]);
+  const remoteUrlResult = runGit(resolvedGitCwd, [
+    "config",
+    "--get",
+    "remote.origin.url",
+  ]);
+  const worktreeListResult = runGit(resolvedGitCwd, [
+    "worktree",
+    "list",
+    "--porcelain",
+  ]);
 
   if (!worktreeListResult.success) {
     throw new Error(
@@ -135,8 +158,14 @@ export function discoverRepo(cwd: string): RepoDiscovery {
 
   return {
     isGitRepo: true,
-    repoName: parseRepoName(remoteUrlResult.success ? remoteUrlResult.stdout : "", repoRoot),
+    repoName: parseRepoName(
+      remoteUrlResult.success ? remoteUrlResult.stdout : "",
+      repoRoot,
+    ),
     repoRoot,
-    activeWorktrees: parseWorktreeList(worktreeListResult.stdout, parseMainWorktreeRoot(cwd)),
+    activeWorktrees: parseWorktreeList(
+      worktreeListResult.stdout,
+      parseMainWorktreeRoot(resolvedGitCwd),
+    ),
   };
 }

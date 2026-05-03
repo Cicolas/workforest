@@ -10,7 +10,7 @@ export interface WorkforestManifest {
     name: string;
     root: string;
   };
-  activeWorktrees: WorktreeEntry[];
+  worktrees: WorktreeEntry[];
   shared: Record<string, string>;
 }
 
@@ -19,7 +19,10 @@ function quoteYamlString(value: string): string {
 }
 
 function toYamlScalar(value: string): string {
-  if (/^[A-Za-z0-9._/-]+$/.test(value) && !["null", "true", "false"].includes(value)) {
+  if (
+    /^[A-Za-z0-9._/*-]+$/.test(value) &&
+    !["null", "true", "false"].includes(value)
+  ) {
     return value;
   }
 
@@ -34,12 +37,12 @@ export function serializeManifest(manifest: WorkforestManifest): string {
     `  root: ${toYamlScalar(manifest.repo.root)}`,
   ];
 
-  if (manifest.activeWorktrees.length === 0) {
-    lines.push("activeWorktrees: []");
+  if (manifest.worktrees.length === 0) {
+    lines.push("worktrees: []");
   } else {
-    lines.push("activeWorktrees:");
+    lines.push("worktrees:");
 
-    for (const worktree of manifest.activeWorktrees) {
+    for (const worktree of manifest.worktrees) {
       lines.push(`  - path: ${toYamlScalar(worktree.path)}`);
       lines.push(
         `    branch: ${worktree.branch === null ? "null" : toYamlScalar(worktree.branch)}`,
@@ -52,7 +55,9 @@ export function serializeManifest(manifest: WorkforestManifest): string {
     lines.push("shared: {}");
   } else {
     lines.push("shared:");
-
+    lines.push(
+      "  # source path in the main worktree: target path to create in other worktrees",
+    );
     for (const [sourcePath, targetPath] of Object.entries(manifest.shared)) {
       lines.push(`  ${toYamlScalar(sourcePath)}: ${toYamlScalar(targetPath)}`);
     }

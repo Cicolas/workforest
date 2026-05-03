@@ -6,13 +6,7 @@
     "strict": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "types": [
-      "bun-types"
-    ]
+    "types": ["bun-types"]
   },
-  "include": [
-    "bin/**/*.ts",
-    "src/**/*.ts",
-    "tests/**/*.ts"
-  ]
+  "include": ["bin/**/*.ts", "src/**/*.ts", "tests/**/*.ts"]
 }

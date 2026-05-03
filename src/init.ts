@@ -1,5 +1,5 @@
 import { existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { discoverRepo } from "./git.ts";
 import { serializeManifest, type WorkforestManifest } from "./manifest.ts";
@@ -9,30 +9,51 @@ export interface InitResult {
   gitDiscovered: boolean;
 }
 
-function buildManifestFromRepo(repo: ReturnType<typeof discoverRepo>): WorkforestManifest {
+function buildManifestFromRepo(
+  repo: ReturnType<typeof discoverRepo>,
+): WorkforestManifest {
   return {
     version: 1,
     repo: {
       name: repo.repoName,
       root: repo.repoRoot,
     },
-    activeWorktrees: repo.activeWorktrees,
-    shared: {},
+    worktrees: repo.activeWorktrees,
+    shared: {
+      ".env": ".env",
+    },
   };
 }
 
-export function buildInitialManifest(cwd: string): WorkforestManifest {
-  return buildManifestFromRepo(discoverRepo(cwd));
+export function buildInitialManifest(
+  cwd: string,
+  mainFolder: string,
+): WorkforestManifest {
+  return buildManifestFromRepo(discoverRepo(resolve(cwd, mainFolder)));
 }
 
-export function initWorkforest(cwd: string): InitResult {
+export function initWorkforest(cwd: string, mainFolder?: string): InitResult {
   const manifestPath = join(cwd, "workforest.yaml");
 
   if (existsSync(manifestPath)) {
     throw new Error(`Refusing to overwrite existing manifest: ${manifestPath}`);
   }
 
-  const repo = discoverRepo(cwd);
+  let repo;
+
+  if (mainFolder) {
+    const mainFolderPath = resolve(cwd, mainFolder);
+
+    if (!existsSync(join(mainFolderPath, ".git"))) {
+      throw new Error(
+        `Main git folder does not contain .git: ${mainFolderPath}`,
+      );
+    }
+
+    repo = discoverRepo(mainFolderPath);
+  } else {
+    repo = discoverRepo(cwd);
+  }
   const manifest = buildManifestFromRepo(repo);
 
   writeFileSync(manifestPath, serializeManifest(manifest), "utf8");

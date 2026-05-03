@@ -1,0 +1,14 @@
+version: 1
+repo:
+  name: main
+  root: /home/nicolas/prog/workforest/example/main
+worktrees:
+  - path: /home/nicolas/prog/workforest/example/main
+    branch: main
+    isMain: true
+  - path: /home/nicolas/prog/workforest/example/test
+    branch: feat/test
+    isMain: false
+shared:
+  # source path in the main worktree: target path to create in other worktrees
+  .env: .env
