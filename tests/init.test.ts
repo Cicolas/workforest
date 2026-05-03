@@ -17,6 +17,7 @@ import { createWorktree } from "../src/create.ts";
 import { initWorkforest } from "../src/init.ts";
 import { parseWorktreeList } from "../src/git.ts";
 import { serializeManifest } from "../src/manifest.ts";
+import { syncWorktrees } from "../src/sync.ts";
 
 const tempDirs: string[] = [];
 
@@ -386,5 +387,102 @@ describe("createWorktree", () => {
     expect(resolve(dirname(linkedBinFile), readlinkSync(linkedBinFile))).toBe(
       binFile,
     );
+  });
+});
+
+describe("syncWorktrees", () => {
+  test("removes stale worktrees from the manifest after prune", () => {
+    const cwd = makeTempDir("workforest-sync-prune-");
+    const mainDir = join(cwd, "main");
+
+    mkdirSync(mainDir);
+    run(["git", "init", "-b", "main"], mainDir);
+    run(["git", "config", "user.name", "Workforest Test"], mainDir);
+    run(["git", "config", "user.email", "workforest@example.com"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "hello", "utf8");
+    run(["git", "add", "README.md"], mainDir);
+    run(["git", "commit", "-m", "init"], mainDir);
+
+    initWorkforest(cwd, "main");
+    const created = createWorktree(cwd, "feature-prune", "feature/prune");
+
+    rmSync(created.worktreePath, { recursive: true, force: true });
+
+    const result = syncWorktrees(cwd);
+    const updatedManifest = readManifest(cwd).manifest;
+
+    expect(result.removedWorktrees).toContain(created.worktreePath);
+    expect(
+      updatedManifest.worktrees.some(
+        (entry) => entry.path === created.worktreePath,
+      ),
+    ).toBe(false);
+  });
+
+  test("adds existing git worktrees that are missing from the manifest", () => {
+    const cwd = makeTempDir("workforest-sync-create-");
+    const mainDir = join(cwd, "main");
+    const envPath = join(mainDir, ".env");
+    const extraPath = join(cwd, "feature-sync");
+
+    mkdirSync(mainDir);
+    run(["git", "init", "-b", "main"], mainDir);
+    run(["git", "config", "user.name", "Workforest Test"], mainDir);
+    run(["git", "config", "user.email", "workforest@example.com"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "hello", "utf8");
+    writeFileSync(envPath, "TOKEN=abc\n", "utf8");
+    run(["git", "add", "README.md"], mainDir);
+    run(["git", "commit", "-m", "init"], mainDir);
+
+    initWorkforest(cwd, "main");
+    run(["git", "worktree", "add", "-b", "feature/sync", extraPath], mainDir);
+
+    const loaded = readManifest(cwd);
+    writeManifest(loaded.manifestPath, {
+      ...loaded.manifest,
+      worktrees: loaded.manifest.worktrees.filter((entry) => entry.isMain),
+    });
+
+    const result = syncWorktrees(cwd);
+    const linkedEnvPath = join(extraPath, ".env");
+    const updatedManifest = readManifest(cwd).manifest;
+
+    tempDirs.push(extraPath);
+
+    expect(result.createdWorktrees).toContain(extraPath);
+    expect(lstatSync(linkedEnvPath).isSymbolicLink()).toBe(true);
+    expect(resolve(dirname(linkedEnvPath), readlinkSync(linkedEnvPath))).toBe(
+      envPath,
+    );
+    expect(
+      updatedManifest.worktrees.some((entry) => entry.path === extraPath),
+    ).toBe(true);
+  });
+
+  test("finds workforest.yaml from inside a worktree via git rev-parse", () => {
+    const cwd = makeTempDir("workforest-sync-locate-");
+    const mainDir = join(cwd, "main");
+    const featurePath = join(cwd, "feature-locate");
+    const envPath = join(mainDir, ".env");
+
+    mkdirSync(mainDir);
+    run(["git", "init", "-b", "main"], mainDir);
+    run(["git", "config", "user.name", "Workforest Test"], mainDir);
+    run(["git", "config", "user.email", "workforest@example.com"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "hello", "utf8");
+    writeFileSync(envPath, "TOKEN=abc\n", "utf8");
+    run(["git", "add", "README.md"], mainDir);
+    run(["git", "commit", "-m", "init"], mainDir);
+
+    initWorkforest(cwd, "main");
+    createWorktree(cwd, "feature-locate", "feature/locate");
+
+    tempDirs.push(featurePath);
+
+    const result = syncWorktrees(featurePath);
+
+    expect(result.manifestPath).toBe(join(cwd, "workforest.yaml"));
+    expect(lstatSync(join(featurePath, ".env")).isSymbolicLink()).toBe(true);
+    expect(resolve(dirname(join(featurePath, ".env")), readlinkSync(join(featurePath, ".env")))).toBe(envPath);
   });
 });

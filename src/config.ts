@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
+import { runGit } from "./git.ts";
 import {
   serializeManifest,
   type WorkforestManifest,
@@ -171,14 +172,50 @@ export function parseManifest(content: string): WorkforestManifest {
   };
 }
 
+function findManifestForRepo(cwd: string): string | null {
+  const repoRootResult = runGit(cwd, ["rev-parse", "--show-toplevel"]);
+
+  if (!repoRootResult.success || !repoRootResult.stdout) {
+    return null;
+  }
+
+  const repoRoot = resolve(repoRootResult.stdout);
+  let currentDir = repoRoot;
+
+  while (true) {
+    const candidatePath = join(currentDir, "workforest.yaml");
+
+    if (existsSync(candidatePath)) {
+      const manifest = parseManifest(readFileSync(candidatePath, "utf8"));
+      const matchesRepoRoot =
+        resolve(manifest.repo.root) === repoRoot ||
+        manifest.worktrees.some((entry) => resolve(entry.path) === repoRoot);
+
+      if (matchesRepoRoot) {
+        return candidatePath;
+      }
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+
+    currentDir = parentDir;
+  }
+}
+
 export function readManifest(cwd: string): {
   manifestPath: string;
   manifest: WorkforestManifest;
 } {
-  const manifestPath = join(cwd, "workforest.yaml");
+  const directManifestPath = join(cwd, "workforest.yaml");
+  const manifestPath = existsSync(directManifestPath)
+    ? directManifestPath
+    : findManifestForRepo(cwd);
 
-  if (!existsSync(manifestPath)) {
-    throw new Error(`Missing workforest manifest: ${manifestPath}`);
+  if (!manifestPath) {
+    throw new Error(`Missing workforest manifest: ${directManifestPath}`);
   }
 
   return {

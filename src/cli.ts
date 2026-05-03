@@ -1,9 +1,10 @@
 import { initWorkforest } from "./init.ts";
 import { createWorktree } from "./create.ts";
+import { syncWorktrees } from "./sync.ts";
 
 function printUsage(): void {
   console.error(
-    "Usage: wf init [main-folder] | wf create <folder> <branch-name>",
+    "Usage: wf init [main-folder] | wf create <folder> <branch-name> | wf sync",
   );
 }
 
@@ -39,6 +40,20 @@ function main(): void {
       console.log(
         `Created ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared link(s), manifest updated at ${result.manifestPath})`,
       );
+      return;
+    }
+
+    if (command === "sync") {
+      const result = syncWorktrees(process.cwd());
+      console.log(
+        `Synced ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared link(s) updated)`,
+      );
+
+      for (const worktree of result.worktrees) {
+        const branchLabel = worktree.branch ?? "detached";
+        const mainLabel = worktree.isMain ? " main" : "";
+        console.log(`- ${worktree.path} [${branchLabel}]${mainLabel}`);
+      }
       return;
     }
 
