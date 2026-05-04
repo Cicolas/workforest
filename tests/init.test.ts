@@ -388,6 +388,38 @@ describe("createWorktree", () => {
       binFile,
     );
   });
+
+  test("skips shared links when the source path does not exist", () => {
+    const cwd = makeTempDir("workforest-create-missing-source-");
+    const mainDir = join(cwd, "main");
+    const missingEnvPath = join(mainDir, ".env");
+
+    mkdirSync(mainDir);
+    run(["git", "init", "-b", "main"], mainDir);
+    run(["git", "config", "user.name", "Workforest Test"], mainDir);
+    run(["git", "config", "user.email", "workforest@example.com"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "hello", "utf8");
+    run(["git", "add", "README.md"], mainDir);
+    run(["git", "commit", "-m", "init"], mainDir);
+
+    initWorkforest(cwd, "main");
+    const loaded = readManifest(cwd);
+    writeManifest(loaded.manifestPath, {
+      ...loaded.manifest,
+      shared: {
+        ".env": ".env",
+      },
+    });
+
+    const result = createWorktree(cwd, "feature-missing-source", "feature/missing-source");
+    const createdEnvPath = join(result.worktreePath, ".env");
+
+    tempDirs.push(result.worktreePath);
+
+    expect(existsSync(missingEnvPath)).toBe(false);
+    expect(result.sharedLinksCreated).toBe(0);
+    expect(existsSync(createdEnvPath)).toBe(false);
+  });
 });
 
 describe("syncWorktrees", () => {
