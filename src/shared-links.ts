@@ -1,4 +1,5 @@
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -134,6 +135,10 @@ export function applySharedLinks(
     worktreePath,
     shared,
   )) {
+    if (!existsSync(sourcePath)) {
+      continue;
+    }
+
     if (!prepareSharedTarget(targetPath, sourcePath)) {
       continue;
     }
