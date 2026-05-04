@@ -1,69 +1,96 @@
-import { initWorkforest } from "./init.ts";
+import { Command } from "commander";
+
 import { createWorktree } from "./create.ts";
+import { initWorkforest } from "./init.ts";
 import { syncWorktrees } from "./sync.ts";
 
-function printUsage(): void {
-  console.error(
-    "Usage: wf init [main-folder] | wf create <folder> <branch-name> | wf sync",
-  );
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
 }
 
-function main(): void {
-  const [, , command, ...args] = process.argv;
+function reportAndExit(error: unknown): never {
+  console.error(formatError(error));
+  process.exit(1);
+}
+
+export function buildProgram(): Command {
+  const program = new Command();
+
+  program
+    .name("wf")
+    .description("CLI helpers for managing Git worktree development flows.")
+    .showHelpAfterError();
+
+  program
+    .command("init")
+    .description("Create a workforest.yaml manifest for the current repository.")
+    .argument("[main-folder]", "folder containing the main git worktree")
+    .action((mainFolder?: string) => {
+      try {
+        const result = initWorkforest(process.cwd(), mainFolder);
+        const discoveryLabel = result.gitDiscovered
+          ? "git metadata discovered"
+          : "scaffolded without git metadata";
+        console.log(`Created ${result.manifestPath} (${discoveryLabel})`);
+      } catch (error) {
+        reportAndExit(error);
+      }
+    });
+
+  program
+    .command("create")
+    .description("Create a new git worktree and update the workforest manifest.")
+    .argument("<folder>", "folder to create for the new worktree")
+    .argument("<branch-name>", "new branch name for the worktree")
+    .action((folder: string, branchName: string) => {
+      try {
+        const result = createWorktree(process.cwd(), folder, branchName);
+        console.log(
+          `Created ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared link(s), manifest updated at ${result.manifestPath})`,
+        );
+      } catch (error) {
+        reportAndExit(error);
+      }
+    });
+
+  program
+    .command("sync")
+    .description("Prune stale worktrees, refresh the manifest, and restore shared links.")
+    .action(() => {
+      try {
+        const result = syncWorktrees(process.cwd());
+        console.log(
+          `Synced ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared link(s) updated)`,
+        );
+
+        for (const worktree of result.worktrees) {
+          const branchLabel = worktree.branch ?? "detached";
+          const mainLabel = worktree.isMain ? " main" : "";
+          console.log(`- ${worktree.path} [${branchLabel}]${mainLabel}`);
+        }
+      } catch (error) {
+        reportAndExit(error);
+      }
+    });
+
+  return program;
+}
+
+export function run(argv = process.argv): void {
+  const program = buildProgram();
+
+  if (argv.length <= 2) {
+    program.outputHelp();
+    return;
+  }
 
   try {
-    if (!command) {
-      printUsage();
-      return;
-    }
-
-    if (command === "init") {
-      const [mainFolder] = args;
-
-      const result = initWorkforest(process.cwd(), mainFolder);
-      const discoveryLabel = result.gitDiscovered
-        ? "git metadata discovered"
-        : "scaffolded without git metadata";
-      console.log(`Created ${result.manifestPath} (${discoveryLabel})`);
-      return;
-    }
-
-    if (command === "create") {
-      const [folder, branchName] = args;
-
-      if (!folder || !branchName) {
-        printUsage();
-        process.exit(1);
-      }
-
-      const result = createWorktree(process.cwd(), folder, branchName);
-      console.log(
-        `Created ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared link(s), manifest updated at ${result.manifestPath})`,
-      );
-      return;
-    }
-
-    if (command === "sync") {
-      const result = syncWorktrees(process.cwd());
-      console.log(
-        `Synced ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared link(s) updated)`,
-      );
-
-      for (const worktree of result.worktrees) {
-        const branchLabel = worktree.branch ?? "detached";
-        const mainLabel = worktree.isMain ? " main" : "";
-        console.log(`- ${worktree.path} [${branchLabel}]${mainLabel}`);
-      }
-      return;
-    }
-
-    printUsage();
-    process.exit(1);
+    program.parse(argv);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error(message);
-    process.exit(1);
+    reportAndExit(error);
   }
 }
 
-main();
+if (import.meta.main) {
+  run();
+}
