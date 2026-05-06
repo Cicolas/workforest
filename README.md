@@ -21,6 +21,20 @@ A CLI for managing Git worktree setups with shared files and per-worktree exclus
 ./bin/wf --help
 ```
 
+### Install with shell script
+
+Install to `~/.local/bin`:
+
+```bash
+sh install.sh
+```
+
+Override the destination:
+
+```bash
+BIN_DIR="$HOME/bin" sh install.sh
+```
+
 ### Build from source
 
 Install dependencies:
