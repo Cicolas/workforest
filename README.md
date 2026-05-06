@@ -29,6 +29,22 @@ Install dependencies:
 bun install
 ```
 
+Build the Bun-targeted bundle:
+
+```bash
+bun run build
+```
+
+This writes the built artifact to `dist/cli.js`.
+
+Build a standalone `wf` binary:
+
+```bash
+bun run build:bin
+```
+
+This writes the compiled executable to `./wf`.
+
 Run tests:
 
 ```bash
@@ -90,6 +106,8 @@ Useful commands:
 
 ```bash
 bun test
+bun run build
+bun run build:bin
 bun src/cli.ts --help
 bun src/cli.ts create --help
 ```

@@ -8,6 +8,8 @@
   },
   "scripts": {
     "test": "bun test",
+    "build": "bun build src/cli.ts --target bun --outdir dist",
+    "build:bin": "bun build src/cli.ts --compile --outfile wf",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
