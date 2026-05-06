@@ -9,9 +9,12 @@ worktrees:
   - path: /home/nicolas/prog/workforest/example/feature/b
     branch: b
     isMain: false
+    ignoreShared:
+      - .env
   - path: /home/nicolas/prog/workforest/example/feature/c
     branch: c
     isMain: false
 shared:
   # source path in the main worktree: target path to create in other worktrees
   .env: .env
+  assets/: assets/

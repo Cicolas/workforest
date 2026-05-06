@@ -10,6 +10,7 @@ import {
 import { dirname, relative, resolve } from "node:path";
 
 interface SharedLink {
+  sourceRelative: string;
   sourcePath: string;
   targetPath: string;
 }
@@ -79,12 +80,18 @@ function expandSharedLinks(
   repoRoot: string,
   worktreePath: string,
   shared: Record<string, string>,
+  ignoredShared: Set<string>,
 ): SharedLink[] {
   const links: SharedLink[] = [];
 
   for (const [sourceRelative, targetRelative] of Object.entries(shared)) {
+    if (ignoredShared.has(sourceRelative)) {
+      continue;
+    }
+
     if (!isGlobPattern(sourceRelative)) {
       links.push({
+        sourceRelative,
         sourcePath: resolve(repoRoot, sourceRelative),
         targetPath: resolve(worktreePath, targetRelative),
       });
@@ -103,6 +110,7 @@ function expandSharedLinks(
       for (const sourcePath of collectRecursiveFiles(sourceBase)) {
         const nestedRelative = relative(sourceBase, sourcePath);
         links.push({
+          sourceRelative,
           sourcePath,
           targetPath: resolve(worktreePath, targetRelative, nestedRelative),
         });
@@ -127,13 +135,16 @@ export function applySharedLinks(
   repoRoot: string,
   worktreePath: string,
   shared: Record<string, string>,
+  ignoredShared: string[] = [],
 ): number {
   let created = 0;
+  const ignoredSharedSet = new Set(ignoredShared);
 
   for (const { sourcePath, targetPath } of expandSharedLinks(
     repoRoot,
     worktreePath,
     shared,
+    ignoredSharedSet,
   )) {
     if (!existsSync(sourcePath)) {
       continue;

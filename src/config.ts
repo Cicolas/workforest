@@ -16,6 +16,16 @@ interface ParseState {
   shared: Record<string, string>;
 }
 
+function parseYamlListItem(line: string): string {
+  const trimmed = line.trim();
+
+  if (!trimmed.startsWith("- ")) {
+    throw new Error(`Invalid list item: ${line}`);
+  }
+
+  return trimmed.slice(2).trim();
+}
+
 function parseYamlScalar(value: string): string | null {
   const trimmed = value.trim();
 
@@ -55,6 +65,7 @@ function parseWorktreeBlock(
   const pathPair = parseKeyValue(pathLine.slice(2).trim());
   let branch: string | null = null;
   let isMain = false;
+  const ignoreShared: string[] = [];
   let nextIndex = startIndex + 1;
 
   if (pathPair.key !== "path") {
@@ -68,6 +79,20 @@ function parseWorktreeBlock(
       branch = parseYamlScalar(pair.value);
     } else if (pair.key === "isMain") {
       isMain = pair.value === "true";
+    } else if (pair.key === "ignoreShared") {
+      nextIndex += 1;
+
+      while (
+        nextIndex < lines.length &&
+        lines[nextIndex].startsWith("      - ")
+      ) {
+        ignoreShared.push(
+          parseYamlScalar(parseYamlListItem(lines[nextIndex])) ?? "",
+        );
+        nextIndex += 1;
+      }
+
+      continue;
     }
 
     nextIndex += 1;
@@ -78,6 +103,7 @@ function parseWorktreeBlock(
       path: parseYamlScalar(pathPair.value) ?? "",
       branch,
       isMain,
+      ...(ignoreShared.length > 0 ? { ignoreShared } : {}),
     },
     nextIndex,
   };

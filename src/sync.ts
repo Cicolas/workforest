@@ -17,6 +17,28 @@ function pathSet(worktrees: WorktreeEntry[]): Set<string> {
   return new Set(worktrees.map((entry) => entry.path));
 }
 
+function mergeWorktreeSettings(
+  currentWorktrees: WorktreeEntry[],
+  discoveredWorktrees: WorktreeEntry[],
+): WorktreeEntry[] {
+  const currentByPath = new Map(
+    currentWorktrees.map((entry) => [entry.path, entry]),
+  );
+
+  return discoveredWorktrees.map((entry) => {
+    const existingEntry = currentByPath.get(entry.path);
+
+    if (!existingEntry?.ignoreShared || existingEntry.ignoreShared.length === 0) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      ignoreShared: [...existingEntry.ignoreShared],
+    };
+  });
+}
+
 export function syncWorktrees(cwd: string): SyncResult {
   const { manifestPath, manifest } = readManifest(cwd);
   const beforePaths = pathSet(manifest.worktrees);
@@ -32,9 +54,13 @@ export function syncWorktrees(cwd: string): SyncResult {
   }
 
   const currentRepo = discoverRepo(manifest.repo.root);
+  const mergedWorktrees = mergeWorktreeSettings(
+    manifest.worktrees,
+    currentRepo.activeWorktrees,
+  );
 
   let sharedLinksCreated = 0;
-  for (const worktree of currentRepo.activeWorktrees) {
+  for (const worktree of mergedWorktrees) {
     if (worktree.isMain || !existsSync(worktree.path)) {
       continue;
     }
@@ -43,11 +69,12 @@ export function syncWorktrees(cwd: string): SyncResult {
       manifest.repo.root,
       worktree.path,
       manifest.shared,
+      worktree.ignoreShared,
     );
   }
 
-  const afterPaths = pathSet(currentRepo.activeWorktrees);
-  const createdWorktrees = currentRepo.activeWorktrees
+  const afterPaths = pathSet(mergedWorktrees);
+  const createdWorktrees = mergedWorktrees
     .map((entry) => entry.path)
     .filter((path) => !beforePaths.has(path));
   const removedWorktrees = manifest.worktrees
@@ -60,14 +87,14 @@ export function syncWorktrees(cwd: string): SyncResult {
       name: currentRepo.repoName,
       root: currentRepo.repoRoot,
     },
-    worktrees: currentRepo.activeWorktrees,
+    worktrees: mergedWorktrees,
   });
 
   return {
     manifestPath,
     createdWorktrees,
     removedWorktrees,
-    worktrees: currentRepo.activeWorktrees,
+    worktrees: mergedWorktrees,
     sharedLinksCreated,
   };
 }

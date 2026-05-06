@@ -2,6 +2,7 @@ export interface WorktreeEntry {
   path: string;
   branch: string | null;
   isMain: boolean;
+  ignoreShared?: string[];
 }
 
 export interface WorkforestManifest {
@@ -48,6 +49,13 @@ export function serializeManifest(manifest: WorkforestManifest): string {
         `    branch: ${worktree.branch === null ? "null" : toYamlScalar(worktree.branch)}`,
       );
       lines.push(`    isMain: ${worktree.isMain ? "true" : "false"}`);
+
+      if (worktree.ignoreShared && worktree.ignoreShared.length > 0) {
+        lines.push("    ignoreShared:");
+        for (const sourcePath of worktree.ignoreShared) {
+          lines.push(`      - ${toYamlScalar(sourcePath)}`);
+        }
+      }
     }
   }
 

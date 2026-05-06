@@ -16,7 +16,7 @@ import { readManifest, writeManifest } from "../src/config.ts";
 import { createWorktree } from "../src/create.ts";
 import { initWorkforest } from "../src/init.ts";
 import { parseWorktreeList } from "../src/git.ts";
-import { serializeManifest } from "../src/manifest.ts";
+import { parseManifest, serializeManifest } from "../src/manifest.ts";
 import { syncWorktrees } from "../src/sync.ts";
 
 const tempDirs: string[] = [];
@@ -42,6 +42,10 @@ function run(cmd: string[], cwd: string): string {
   }
 
   return result.stdout.toString().trim();
+}
+
+function readManifestFromString(content: string) {
+  return parseManifest(content.trimStart());
 }
 
 afterEach(() => {
@@ -233,6 +237,68 @@ describe("serializeManifest", () => {
 
     expect(content).toContain("  node_modules/**/*: node_modules/");
   });
+
+  test("renders per-worktree shared exclusions", () => {
+    const content = serializeManifest({
+      version: 1,
+      repo: {
+        name: "demo",
+        root: "/tmp/demo",
+      },
+      worktrees: [
+        {
+          path: "/tmp/demo",
+          branch: "main",
+          isMain: true,
+        },
+        {
+          path: "/tmp/demo-feature",
+          branch: "feature/demo",
+          isMain: false,
+          ignoreShared: [".env", "assets/"],
+        },
+      ],
+      shared: {
+        ".env": ".env",
+        "assets/": "assets/",
+      },
+    });
+
+    expect(content).toContain("    ignoreShared:");
+    expect(content).toContain("      - .env");
+    expect(content).toContain("      - assets/");
+  });
+});
+
+describe("parseManifest", () => {
+  test("parses per-worktree shared exclusions", () => {
+    const manifest = readManifestFromString(`
+version: 1
+repo:
+  name: demo
+  root: /tmp/demo
+worktrees:
+  - path: /tmp/demo
+    branch: main
+    isMain: true
+  - path: /tmp/demo-feature
+    branch: feature/demo
+    isMain: false
+    ignoreShared:
+      - .env
+      - assets/
+shared:
+  .env: .env
+  assets/: assets/
+`);
+
+    expect(manifest.worktrees[1]).toEqual({
+      path: "/tmp/demo-feature",
+      branch: "feature/demo",
+      isMain: false,
+      ignoreShared: [".env", "assets/"],
+    });
+  });
 });
 
 describe("createWorktree", () => {
@@ -420,6 +486,59 @@ describe("createWorktree", () => {
     expect(result.sharedLinksCreated).toBe(0);
     expect(existsSync(createdEnvPath)).toBe(false);
   });
+
+  test("does not create ignored shared links for a worktree", () => {
+    const cwd = makeTempDir("workforest-create-ignore-shared-");
+    const mainDir = join(cwd, "main");
+    const envPath = join(mainDir, ".env");
+    const assetsDir = join(mainDir, "assets");
+
+    mkdirSync(mainDir);
+    run(["git", "init", "-b", "main"], mainDir);
+    run(["git", "config", "user.name", "Workforest Test"], mainDir);
+    run(["git", "config", "user.email", "workforest@example.com"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "hello", "utf8");
+    writeFileSync(envPath, "TOKEN=abc\n", "utf8");
+    mkdirSync(assetsDir);
+    writeFileSync(join(assetsDir, "logo.txt"), "logo\n", "utf8");
+    run(["git", "add", "README.md"], mainDir);
+    run(["git", "commit", "-m", "init"], mainDir);
+
+    initWorkforest(cwd, "main");
+    const loaded = readManifest(cwd);
+    const worktreePath = join(cwd, "feature-ignore");
+    writeManifest(loaded.manifestPath, {
+      ...loaded.manifest,
+      worktrees: [
+        ...loaded.manifest.worktrees,
+        {
+          path: worktreePath,
+          branch: "feature/ignore",
+          isMain: false,
+          ignoreShared: [".env"],
+        },
+      ],
+      shared: {
+        ".env": ".env",
+        assets: "assets",
+      },
+    });
+
+    const result = createWorktree(cwd, "feature-ignore", "feature/ignore");
+
+    tempDirs.push(result.worktreePath);
+
+    expect(result.sharedLinksCreated).toBe(1);
+    expect(existsSync(join(result.worktreePath, ".env"))).toBe(false);
+    expect(lstatSync(join(result.worktreePath, "assets")).isSymbolicLink()).toBe(
+      true,
+    );
+    expect(
+      readManifest(cwd).manifest.worktrees.find(
+        (entry) => entry.path === worktreePath,
+      )?.ignoreShared,
+    ).toEqual([".env"]);
+  });
 });
 
 describe("syncWorktrees", () => {
@@ -516,5 +635,53 @@ describe("syncWorktrees", () => {
     expect(result.manifestPath).toBe(join(cwd, "workforest.yaml"));
     expect(lstatSync(join(featurePath, ".env")).isSymbolicLink()).toBe(true);
     expect(resolve(dirname(join(featurePath, ".env")), readlinkSync(join(featurePath, ".env")))).toBe(envPath);
+  });
+
+  test("preserves per-worktree exclusions and skips ignored shared links on sync", () => {
+    const cwd = makeTempDir("workforest-sync-ignore-shared-");
+    const mainDir = join(cwd, "main");
+    const featurePath = join(cwd, "feature-ignore");
+    const envPath = join(mainDir, ".env");
+    const assetsDir = join(mainDir, "assets");
+
+    mkdirSync(mainDir);
+    run(["git", "init", "-b", "main"], mainDir);
+    run(["git", "config", "user.name", "Workforest Test"], mainDir);
+    run(["git", "config", "user.email", "workforest@example.com"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "hello", "utf8");
+    writeFileSync(envPath, "TOKEN=abc\n", "utf8");
+    mkdirSync(assetsDir);
+    writeFileSync(join(assetsDir, "logo.txt"), "logo\n", "utf8");
+    run(["git", "add", "README.md"], mainDir);
+    run(["git", "commit", "-m", "init"], mainDir);
+
+    initWorkforest(cwd, "main");
+    run(["git", "worktree", "add", "-b", "feature/ignore", featurePath], mainDir);
+
+    const loaded = readManifest(cwd);
+    writeManifest(loaded.manifestPath, {
+      ...loaded.manifest,
+      worktrees: loaded.manifest.worktrees.map((entry) =>
+        entry.path === featurePath
+          ? { ...entry, ignoreShared: [".env"] }
+          : entry,
+      ),
+      shared: {
+        ".env": ".env",
+        assets: "assets",
+      },
+    });
+
+    tempDirs.push(featurePath);
+
+    const result = syncWorktrees(cwd);
+    const syncedEntry = readManifest(cwd).manifest.worktrees.find(
+      (entry) => entry.path === featurePath,
+    );
+
+    expect(result.sharedLinksCreated).toBe(1);
+    expect(existsSync(join(featurePath, ".env"))).toBe(false);
+    expect(lstatSync(join(featurePath, "assets")).isSymbolicLink()).toBe(true);
+    expect(syncedEntry?.ignoreShared).toEqual([".env"]);
   });
 });

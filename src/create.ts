@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "./config.ts";
 import { discoverRepo, runGit } from "./git.ts";
+import type { WorktreeEntry } from "./manifest.ts";
 import { applySharedLinks } from "./shared-links.ts";
 
 export interface CreateResult {
@@ -9,6 +10,28 @@ export interface CreateResult {
   branchName: string;
   sharedLinksCreated: number;
   manifestPath: string;
+}
+
+function mergeWorktreeSettings(
+  currentWorktrees: WorktreeEntry[],
+  discoveredWorktrees: WorktreeEntry[],
+): WorktreeEntry[] {
+  const currentByPath = new Map(
+    currentWorktrees.map((entry) => [resolve(entry.path), entry]),
+  );
+
+  return discoveredWorktrees.map((entry) => {
+    const existingEntry = currentByPath.get(resolve(entry.path));
+
+    if (!existingEntry?.ignoreShared || existingEntry.ignoreShared.length === 0) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      ignoreShared: [...existingEntry.ignoreShared],
+    };
+  });
 }
 
 export function createWorktree(
@@ -43,6 +66,8 @@ export function createWorktree(
     manifest.repo.root,
     worktreePath,
     manifest.shared,
+    manifest.worktrees.find((entry) => resolve(entry.path) === worktreePath)
+      ?.ignoreShared,
   );
   const refreshedRepo = discoverRepo(manifest.repo.root);
 
@@ -52,7 +77,10 @@ export function createWorktree(
       name: refreshedRepo.repoName,
       root: refreshedRepo.repoRoot,
     },
-    worktrees: refreshedRepo.activeWorktrees,
+    worktrees: mergeWorktreeSettings(
+      manifest.worktrees,
+      refreshedRepo.activeWorktrees,
+    ),
   });
 
   return {
