@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { colors } from "../../lib/colors.ts";
 import { reportAndExit } from "../../lib/errors.ts";
 import { initWorkforest } from "./init.ts";
 
@@ -16,7 +17,9 @@ export function registerInitCommand(program: Command): void {
         const discoveryLabel = result.gitDiscovered
           ? "git metadata discovered"
           : "scaffolded without git metadata";
-        console.log(`Created ${result.manifestPath} (${discoveryLabel})`);
+        console.log(
+          `${colors.success("Created")} ${result.manifestPath} (${discoveryLabel})`,
+        );
       } catch (error) {
         reportAndExit(error);
       }

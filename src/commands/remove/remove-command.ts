@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { colors } from "../../lib/colors.ts";
 import { formatError } from "../../lib/errors.ts";
 import { removeWorktree, type RemoveOptions } from "./remove.ts";
 
@@ -21,10 +22,10 @@ export function registerRemoveCommand(program: Command): void {
             : "skipped (detached worktree)";
         const missing = result.alreadyMissing ? ", path already missing" : "";
         console.log(
-          `Removed ${result.worktreePath} [${branch}] (force: ${result.forceUsed ? "yes" : "no"}, branch deletion: ${deletion}${missing}, manifest updated at ${result.manifestPath})`,
+          `${colors.success("Removed")} ${result.worktreePath} [${branch}] (force: ${result.forceUsed ? "yes" : "no"}, branch deletion: ${deletion}${missing}, manifest updated at ${result.manifestPath})`,
         );
       } catch (error) {
-        console.error(formatError(error));
+        console.error(colors.error(formatError(error)));
         process.exitCode = 1;
       }
     });

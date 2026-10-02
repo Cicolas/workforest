@@ -70,6 +70,12 @@ bun test
 
 ## Usage
 
+Human-readable output uses colored help, table headers, branches, states, roles,
+action labels, status findings, and errors when supported by the terminal.
+Set `NO_COLOR=1` to disable colors or
+`FORCE_COLOR=1` to request them when piping output (overriding `NO_COLOR`).
+`--json` output stays plain.
+
 Initialize a manifest:
 
 ```bash

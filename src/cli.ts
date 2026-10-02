@@ -6,10 +6,18 @@ import { registerListCommand } from "./commands/list/list-command.ts";
 import { registerRemoveCommand } from "./commands/remove/remove-command.ts";
 import { registerStatusCommand } from "./commands/status/status-command.ts";
 import { registerSyncCommand } from "./commands/sync/sync-command.ts";
+import { colors, supportsColor } from "./lib/colors.ts";
 import { reportAndExit } from "./lib/errors.ts";
+import { configureColoredHelp } from "./lib/help.ts";
 
 export function buildProgram(): Command {
   const program = new Command();
+  configureColoredHelp(program);
+  program.configureOutput({
+    getOutHasColors: () => supportsColor(process.stdout),
+    getErrHasColors: () => supportsColor(process.stderr),
+    outputError: (message, write) => write(colors.error(message)),
+  });
 
   program
     .name("wf")

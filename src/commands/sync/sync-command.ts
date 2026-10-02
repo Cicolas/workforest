@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { colors } from "../../lib/colors.ts";
 import { reportAndExit } from "../../lib/errors.ts";
 import { syncWorktrees, type SyncOptions } from "./sync.ts";
 
@@ -17,13 +18,18 @@ export function registerSyncCommand(program: Command): void {
       try {
         const result = syncWorktrees(process.cwd(), options);
         console.log(
-          `Synced ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared path(s) updated)`,
+          `${colors.success("Synced")} ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared path(s) updated)`,
         );
 
         for (const worktree of result.worktrees) {
-          const branchLabel = worktree.branch ?? "detached";
-          const mainLabel = worktree.isMain ? " main" : "";
-          console.log(`- ${worktree.path} [${branchLabel}]${mainLabel}`);
+          const branchLabel =
+            worktree.branch === null
+              ? colors.muted("detached")
+              : colors.info(worktree.branch);
+          const mainLabel = worktree.isMain ? ` ${colors.heading("main")}` : "";
+          console.log(
+            `${colors.muted("-")} ${worktree.path} [${branchLabel}]${mainLabel}`,
+          );
         }
       } catch (error) {
         reportAndExit(error);

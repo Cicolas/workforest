@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { colors } from "../../lib/colors.ts";
 import { formatError } from "../../lib/errors.ts";
 import { formatWorktreeList, listWorktrees } from "./list.ts";
 
@@ -14,10 +15,10 @@ export function registerListCommand(program: Command): void {
         console.log(
           options.json
             ? JSON.stringify(worktrees, null, 2)
-            : formatWorktreeList(worktrees),
+            : formatWorktreeList(worktrees, true),
         );
       } catch (error) {
-        console.error(formatError(error));
+        console.error(colors.error(formatError(error)));
         process.exitCode = 1;
       }
     });

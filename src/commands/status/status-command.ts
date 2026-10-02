@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { colors } from "../../lib/colors.ts";
 import { formatError } from "../../lib/errors.ts";
 import {
   statusErrorResult,
@@ -13,9 +14,21 @@ function printStatus(result: StatusResult, json: boolean): void {
     return;
   }
 
-  console.log(`STATUS ${result.level} (${result.findings.length} finding(s))`);
+  const level =
+    result.level === "ok"
+      ? colors.success(result.level)
+      : result.level === "warning"
+        ? colors.warning(result.level)
+        : colors.error(result.level, process.stdout);
+  console.log(
+    `${colors.heading("STATUS")} ${level} (${result.findings.length} finding(s))`,
+  );
   for (const finding of result.findings) {
-    console.log(`- ${finding.path}: ${finding.code}`);
+    const code =
+      result.level === "error"
+        ? colors.error(finding.code, process.stdout)
+        : colors.warning(finding.code);
+    console.log(`${colors.muted("-")} ${finding.path}: ${code}`);
   }
 }
 
@@ -35,7 +48,7 @@ export function registerStatusCommand(program: Command): void {
       } catch (error) {
         const result = statusErrorResult(error);
         printStatus(result, options.json ?? false);
-        console.error(formatError(error));
+        console.error(colors.error(formatError(error)));
         process.exitCode = 2;
       }
     });
