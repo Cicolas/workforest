@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { readManifest } from "./config.ts";
+import { readManifest } from "../../lib/config.ts";
 
 export interface ListedWorktree {
   path: string;

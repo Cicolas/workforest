@@ -1,11 +1,14 @@
 import { existsSync, lstatSync, readlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { readManifest } from "./config.ts";
-import { discoverRepo } from "./git.ts";
-import type { WorktreeEntry } from "./manifest.ts";
-import { expandSharedLinks } from "./shared-links.ts";
-import { resolveWorktreeTarget, TargetResolutionError } from "./target.ts";
+import { readManifest } from "../../lib/config.ts";
+import { discoverRepo } from "../../lib/git.ts";
+import type { WorktreeEntry } from "../../lib/manifest.ts";
+import { expandSharedLinks } from "../../lib/shared-links.ts";
+import {
+  resolveWorktreeTarget,
+  TargetResolutionError,
+} from "../../lib/target.ts";
 
 export type StatusFindingCode =
   | "manifest_missing_git_worktree"

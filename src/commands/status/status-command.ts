@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { formatError } from "../../lib/errors.ts";
 import {
   statusErrorResult,
   statusWorktrees,
@@ -34,7 +35,7 @@ export function registerStatusCommand(program: Command): void {
       } catch (error) {
         const result = statusErrorResult(error);
         printStatus(result, options.json ?? false);
-        console.error(error instanceof Error ? error.message : "Unknown error");
+        console.error(formatError(error));
         process.exitCode = 2;
       }
     });

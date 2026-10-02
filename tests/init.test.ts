@@ -12,12 +12,16 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 
-import { parseManifest, readManifest, writeManifest } from "../src/config.ts";
-import { createWorktree } from "../src/create.ts";
-import { initWorkforest } from "../src/init.ts";
-import { parseWorktreeList } from "../src/git.ts";
-import { serializeManifest } from "../src/manifest.ts";
-import { syncWorktrees } from "../src/sync.ts";
+import { createWorktree } from "../src/commands/create/create.ts";
+import { initWorkforest } from "../src/commands/init/init.ts";
+import { syncWorktrees } from "../src/commands/sync/sync.ts";
+import {
+  parseManifest,
+  readManifest,
+  writeManifest,
+} from "../src/lib/config.ts";
+import { parseWorktreeList } from "../src/lib/git.ts";
+import { serializeManifest } from "../src/lib/manifest.ts";
 
 const tempDirs: string[] = [];
 

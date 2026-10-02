@@ -13,12 +13,15 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
-import { writeManifest } from "../src/config.ts";
-import { discoverRepo } from "../src/git.ts";
-import type { WorkforestManifest } from "../src/manifest.ts";
-import { applySharedLinks } from "../src/shared-links.ts";
-import { statusErrorResult, statusWorktrees } from "../src/status.ts";
-import { TargetResolutionError } from "../src/target.ts";
+import {
+  statusErrorResult,
+  statusWorktrees,
+} from "../src/commands/status/status.ts";
+import { writeManifest } from "../src/lib/config.ts";
+import { discoverRepo } from "../src/lib/git.ts";
+import type { WorkforestManifest } from "../src/lib/manifest.ts";
+import { applySharedLinks } from "../src/lib/shared-links.ts";
+import { TargetResolutionError } from "../src/lib/target.ts";
 
 const tempDirs: string[] = [];
 const cliPath = resolve(import.meta.dir, "../src/cli.ts");

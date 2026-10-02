@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 
-import { readManifest, writeManifest } from "./config.ts";
-import { discoverRepo, runGit } from "./git.ts";
-import type { WorktreeEntry } from "./manifest.ts";
-import { applySharedLinks } from "./shared-links.ts";
+import { readManifest, writeManifest } from "../../lib/config.ts";
+import { discoverRepo, runGit } from "../../lib/git.ts";
+import type { WorktreeEntry } from "../../lib/manifest.ts";
+import { applySharedLinks } from "../../lib/shared-links.ts";
 
 export interface SyncResult {
   manifestPath: string;
@@ -28,7 +28,10 @@ function mergeWorktreeSettings(
   return discoveredWorktrees.map((entry) => {
     const existingEntry = currentByPath.get(entry.path);
 
-    if (!existingEntry?.ignoreShared || existingEntry.ignoreShared.length === 0) {
+    if (
+      !existingEntry?.ignoreShared ||
+      existingEntry.ignoreShared.length === 0
+    ) {
       return entry;
     }
 

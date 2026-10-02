@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { WorktreeEntry } from "../src/manifest.ts";
-import { resolveWorktreeTarget, TargetResolutionError } from "../src/target.ts";
+import type { WorktreeEntry } from "../src/lib/manifest.ts";
+import {
+  resolveWorktreeTarget,
+  TargetResolutionError,
+} from "../src/lib/target.ts";
 
 const entries: WorktreeEntry[] = [
   { path: "/repo/main", branch: "main", isMain: true },

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Workforest is a Bun-powered TypeScript CLI (`wf`) for managing Git worktrees and shared symlinks. `src/cli.ts` defines Commander commands; `src/init.ts`, `src/create.ts`, and `src/sync.ts` implement workflows. Git operations live in `src/git.ts`, manifest parsing and serialization in `src/config.ts` and `src/manifest.ts`, and symlink handling in `src/shared-links.ts`.
+Workforest is a Bun-powered TypeScript CLI (`wf`) for managing Git worktrees and shared symlinks. `src/cli.ts` assembles the CLI. Each command has a folder under `src/commands/<name>/` containing `<name>-command.ts` for Commander wiring and `<name>.ts` for workflow logic. Shared helpers live in `src/lib/`: Git operations in `git.ts`, manifest parsing and serialization in `config.ts` and `manifest.ts`, symlink handling in `shared-links.ts`, target resolution in `target.ts`, and error reporting in `errors.ts`.
 
 `tests/` contains CLI and integration tests. `example/workforest.yaml` illustrates configuration; example worktree assets are local demonstration data. `install.sh` builds and installs the executable. Generated `dist/`, `wf`, and `node_modules/` are ignored.
 

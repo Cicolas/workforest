@@ -1,20 +1,12 @@
 import { Command, CommanderError } from "commander";
 
-import { createWorktree } from "./create.ts";
-import { initWorkforest } from "./init.ts";
-import { registerListCommand } from "./list-command.ts";
-import { registerRemoveCommand } from "./remove-command.ts";
-import { registerStatusCommand } from "./status-command.ts";
-import { syncWorktrees } from "./sync.ts";
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error";
-}
-
-function reportAndExit(error: unknown): never {
-  console.error(formatError(error));
-  process.exit(1);
-}
+import { registerCreateCommand } from "./commands/create/create-command.ts";
+import { registerInitCommand } from "./commands/init/init-command.ts";
+import { registerListCommand } from "./commands/list/list-command.ts";
+import { registerRemoveCommand } from "./commands/remove/remove-command.ts";
+import { registerStatusCommand } from "./commands/status/status-command.ts";
+import { registerSyncCommand } from "./commands/sync/sync-command.ts";
+import { reportAndExit } from "./lib/errors.ts";
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -24,64 +16,9 @@ export function buildProgram(): Command {
     .description("CLI helpers for managing Git worktree development flows.")
     .showHelpAfterError();
 
-  program
-    .command("init")
-    .description(
-      "Create a workforest.yaml manifest for the current repository.",
-    )
-    .argument("[main-folder]", "folder containing the main git worktree")
-    .action((mainFolder?: string) => {
-      try {
-        const result = initWorkforest(process.cwd(), mainFolder);
-        const discoveryLabel = result.gitDiscovered
-          ? "git metadata discovered"
-          : "scaffolded without git metadata";
-        console.log(`Created ${result.manifestPath} (${discoveryLabel})`);
-      } catch (error) {
-        reportAndExit(error);
-      }
-    });
-
-  program
-    .command("create")
-    .description(
-      "Create a new git worktree and update the workforest manifest.",
-    )
-    .argument("<folder>", "folder to create for the new worktree")
-    .argument("<branch-name>", "new branch name for the worktree")
-    .action((folder: string, branchName: string) => {
-      try {
-        const result = createWorktree(process.cwd(), folder, branchName);
-        console.log(
-          `Created ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared link(s), manifest updated at ${result.manifestPath})`,
-        );
-      } catch (error) {
-        reportAndExit(error);
-      }
-    });
-
-  program
-    .command("sync")
-    .description(
-      "Prune stale worktrees, refresh the manifest, and restore shared links.",
-    )
-    .action(() => {
-      try {
-        const result = syncWorktrees(process.cwd());
-        console.log(
-          `Synced ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared link(s) updated)`,
-        );
-
-        for (const worktree of result.worktrees) {
-          const branchLabel = worktree.branch ?? "detached";
-          const mainLabel = worktree.isMain ? " main" : "";
-          console.log(`- ${worktree.path} [${branchLabel}]${mainLabel}`);
-        }
-      } catch (error) {
-        reportAndExit(error);
-      }
-    });
-
+  registerInitCommand(program);
+  registerCreateCommand(program);
+  registerSyncCommand(program);
   registerListCommand(program);
   registerStatusCommand(program);
   registerRemoveCommand(program);

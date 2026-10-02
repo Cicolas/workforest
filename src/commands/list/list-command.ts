@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { formatError } from "../../lib/errors.ts";
 import { formatWorktreeList, listWorktrees } from "./list.ts";
 
 export function registerListCommand(program: Command): void {
@@ -16,7 +17,7 @@ export function registerListCommand(program: Command): void {
             : formatWorktreeList(worktrees),
         );
       } catch (error) {
-        console.error(error instanceof Error ? error.message : "Unknown error");
+        console.error(formatError(error));
         process.exitCode = 1;
       }
     });

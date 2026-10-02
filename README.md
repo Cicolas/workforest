@@ -151,6 +151,11 @@ Behavior:
 
 ## Development
 
+`src/cli.ts` assembles the CLI. Each command lives in `src/commands/<name>/`,
+with `<name>-command.ts` for Commander registration and `<name>.ts` for its
+implementation. Shared Git, manifest, symlink, target, and error helpers live
+in `src/lib/`. Tests live in `tests/`.
+
 Useful commands:
 
 ```bash

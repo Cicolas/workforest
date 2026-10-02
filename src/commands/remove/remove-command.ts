@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { formatError } from "../../lib/errors.ts";
 import { removeWorktree, type RemoveOptions } from "./remove.ts";
 
 export function registerRemoveCommand(program: Command): void {
@@ -23,7 +24,7 @@ export function registerRemoveCommand(program: Command): void {
           `Removed ${result.worktreePath} [${branch}] (force: ${result.forceUsed ? "yes" : "no"}, branch deletion: ${deletion}${missing}, manifest updated at ${result.manifestPath})`,
         );
       } catch (error) {
-        console.error(error instanceof Error ? error.message : "Unknown error");
+        console.error(formatError(error));
         process.exitCode = 1;
       }
     });

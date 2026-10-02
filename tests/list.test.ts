@@ -9,9 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { writeManifest } from "../src/config.ts";
-import { formatWorktreeList, listWorktrees } from "../src/list.ts";
-import type { WorkforestManifest } from "../src/manifest.ts";
+import {
+  formatWorktreeList,
+  listWorktrees,
+} from "../src/commands/list/list.ts";
+import { writeManifest } from "../src/lib/config.ts";
+import type { WorkforestManifest } from "../src/lib/manifest.ts";
 
 const tempDirs: string[] = [];
 const cliPath = resolve(import.meta.dir, "../src/cli.ts");

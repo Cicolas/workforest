@@ -1,8 +1,11 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { discoverRepo } from "./git.ts";
-import { serializeManifest, type WorkforestManifest } from "./manifest.ts";
+import { discoverRepo } from "../../lib/git.ts";
+import {
+  serializeManifest,
+  type WorkforestManifest,
+} from "../../lib/manifest.ts";
 
 export interface InitResult {
   manifestPath: string;

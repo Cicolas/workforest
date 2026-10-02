@@ -10,9 +10,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readManifest, writeManifest } from "../src/config.ts";
-import { discoverRepo } from "../src/git.ts";
-import { removeWorktree } from "../src/remove.ts";
+import { removeWorktree } from "../src/commands/remove/remove.ts";
+import { readManifest, writeManifest } from "../src/lib/config.ts";
+import { discoverRepo } from "../src/lib/git.ts";
 
 const tempDirs: string[] = [];
 

@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { readManifest, writeManifest } from "./config.ts";
-import { discoverRepo, runGit } from "./git.ts";
-import { resolveWorktreeTarget } from "./target.ts";
+import { readManifest, writeManifest } from "../../lib/config.ts";
+import { discoverRepo, runGit } from "../../lib/git.ts";
+import { resolveWorktreeTarget } from "../../lib/target.ts";
 
 export interface RemoveOptions {
   force?: boolean;
