@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 
-interface SharedLink {
+export interface SharedLink {
   sourceRelative: string;
   sourcePath: string;
   targetPath: string;
@@ -76,7 +76,7 @@ function collectRecursiveFiles(rootPath: string): string[] {
   return files;
 }
 
-function expandSharedLinks(
+export function expandSharedLinks(
   repoRoot: string,
   worktreePath: string,
   shared: Record<string, string>,

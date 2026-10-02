@@ -12,15 +12,20 @@ function createTestProgram(): {
   let stderr = "";
 
   const program = buildProgram();
-  program.configureOutput({
-    writeOut: (message) => {
+  const output = {
+    writeOut: (message: string) => {
       stdout += message;
     },
-    writeErr: (message) => {
+    writeErr: (message: string) => {
       stderr += message;
     },
-  });
+  };
+  program.configureOutput(output);
   program.exitOverride();
+  for (const command of program.commands) {
+    command.configureOutput(output);
+    command.exitOverride();
+  }
 
   return {
     program,
@@ -64,7 +69,9 @@ describe("buildProgram", () => {
     }
 
     const stdout = readStdout();
-    expect(stdout).toContain("Usage: wf create [options] <folder> <branch-name>");
+    expect(stdout).toContain(
+      "Usage: wf create [options] <folder> <branch-name>",
+    );
     expect(stdout).toContain("folder to create for the new worktree");
     expect(stdout).toContain("new branch name for the worktree");
   });
@@ -80,6 +87,8 @@ describe("buildProgram", () => {
 
     const stderr = readStderr();
     expect(stderr).toContain("error: missing required argument 'folder'");
-    expect(stderr).toContain("Usage: wf create [options] <folder> <branch-name>");
+    expect(stderr).toContain(
+      "Usage: wf create [options] <folder> <branch-name>",
+    );
   });
 });

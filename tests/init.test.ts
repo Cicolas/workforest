@@ -12,11 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 
-import { readManifest, writeManifest } from "../src/config.ts";
+import { parseManifest, readManifest, writeManifest } from "../src/config.ts";
 import { createWorktree } from "../src/create.ts";
 import { initWorkforest } from "../src/init.ts";
 import { parseWorktreeList } from "../src/git.ts";
-import { parseManifest, serializeManifest } from "../src/manifest.ts";
+import { serializeManifest } from "../src/manifest.ts";
 import { syncWorktrees } from "../src/sync.ts";
 
 const tempDirs: string[] = [];
@@ -350,9 +350,7 @@ describe("createWorktree", () => {
       ),
     ).toBe(true);
     expect(
-      updatedManifest.worktrees.some(
-        (entry) => entry.branch === "feature/one",
-      ),
+      updatedManifest.worktrees.some((entry) => entry.branch === "feature/one"),
     ).toBe(true);
   });
 
@@ -477,7 +475,11 @@ describe("createWorktree", () => {
       },
     });
 
-    const result = createWorktree(cwd, "feature-missing-source", "feature/missing-source");
+    const result = createWorktree(
+      cwd,
+      "feature-missing-source",
+      "feature/missing-source",
+    );
     const createdEnvPath = join(result.worktreePath, ".env");
 
     tempDirs.push(result.worktreePath);
@@ -530,9 +532,9 @@ describe("createWorktree", () => {
 
     expect(result.sharedLinksCreated).toBe(1);
     expect(existsSync(join(result.worktreePath, ".env"))).toBe(false);
-    expect(lstatSync(join(result.worktreePath, "assets")).isSymbolicLink()).toBe(
-      true,
-    );
+    expect(
+      lstatSync(join(result.worktreePath, "assets")).isSymbolicLink(),
+    ).toBe(true);
     expect(
       readManifest(cwd).manifest.worktrees.find(
         (entry) => entry.path === worktreePath,
@@ -634,7 +636,12 @@ describe("syncWorktrees", () => {
 
     expect(result.manifestPath).toBe(join(cwd, "workforest.yaml"));
     expect(lstatSync(join(featurePath, ".env")).isSymbolicLink()).toBe(true);
-    expect(resolve(dirname(join(featurePath, ".env")), readlinkSync(join(featurePath, ".env")))).toBe(envPath);
+    expect(
+      resolve(
+        dirname(join(featurePath, ".env")),
+        readlinkSync(join(featurePath, ".env")),
+      ),
+    ).toBe(envPath);
   });
 
   test("preserves per-worktree exclusions and skips ignored shared links on sync", () => {
@@ -655,8 +662,11 @@ describe("syncWorktrees", () => {
     run(["git", "add", "README.md"], mainDir);
     run(["git", "commit", "-m", "init"], mainDir);
 
+    run(
+      ["git", "worktree", "add", "-b", "feature/ignore", featurePath],
+      mainDir,
+    );
     initWorkforest(cwd, "main");
-    run(["git", "worktree", "add", "-b", "feature/ignore", featurePath], mainDir);
 
     const loaded = readManifest(cwd);
     writeManifest(loaded.manifestPath, {

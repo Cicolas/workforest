@@ -1,7 +1,10 @@
-import { Command } from "commander";
+import { Command, CommanderError } from "commander";
 
 import { createWorktree } from "./create.ts";
 import { initWorkforest } from "./init.ts";
+import { registerListCommand } from "./list-command.ts";
+import { registerRemoveCommand } from "./remove-command.ts";
+import { registerStatusCommand } from "./status-command.ts";
 import { syncWorktrees } from "./sync.ts";
 
 function formatError(error: unknown): string {
@@ -23,7 +26,9 @@ export function buildProgram(): Command {
 
   program
     .command("init")
-    .description("Create a workforest.yaml manifest for the current repository.")
+    .description(
+      "Create a workforest.yaml manifest for the current repository.",
+    )
     .argument("[main-folder]", "folder containing the main git worktree")
     .action((mainFolder?: string) => {
       try {
@@ -39,7 +44,9 @@ export function buildProgram(): Command {
 
   program
     .command("create")
-    .description("Create a new git worktree and update the workforest manifest.")
+    .description(
+      "Create a new git worktree and update the workforest manifest.",
+    )
     .argument("<folder>", "folder to create for the new worktree")
     .argument("<branch-name>", "new branch name for the worktree")
     .action((folder: string, branchName: string) => {
@@ -55,7 +62,9 @@ export function buildProgram(): Command {
 
   program
     .command("sync")
-    .description("Prune stale worktrees, refresh the manifest, and restore shared links.")
+    .description(
+      "Prune stale worktrees, refresh the manifest, and restore shared links.",
+    )
     .action(() => {
       try {
         const result = syncWorktrees(process.cwd());
@@ -73,11 +82,24 @@ export function buildProgram(): Command {
       }
     });
 
+  registerListCommand(program);
+  registerStatusCommand(program);
+  registerRemoveCommand(program);
+
+  for (const command of program.commands) {
+    if (["list", "status", "remove"].includes(command.name())) {
+      command.showHelpAfterError(false);
+    }
+  }
+
   return program;
 }
 
 export function run(argv = process.argv): void {
   const program = buildProgram();
+  for (const command of [program, ...program.commands]) {
+    command.exitOverride();
+  }
 
   if (argv.length <= 2) {
     program.outputHelp();
@@ -87,6 +109,14 @@ export function run(argv = process.argv): void {
   try {
     program.parse(argv);
   } catch (error) {
+    if (error instanceof CommanderError) {
+      const statusFailure = argv[2] === "status" && error.exitCode !== 0;
+      process.exitCode = statusFailure ? 2 : error.exitCode;
+      if (statusFailure && argv.includes("--json")) {
+        console.log(JSON.stringify({ level: "error", findings: [] }, null, 2));
+      }
+      return;
+    }
     reportAndExit(error);
   }
 }

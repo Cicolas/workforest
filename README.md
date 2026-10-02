@@ -9,16 +9,19 @@ A CLI for managing Git worktree setups with shared files and per-worktree exclus
 - **Shared paths** — symlinks selected files or directories from the main worktree into other worktrees
 - **Per-worktree exclusions** — skip selected shared entries for a specific worktree with `ignoreShared`
 - **Sync command** — prunes stale Git worktrees, refreshes the manifest, and reapplies shared links
-- **Commander-powered help** — generated command help for `wf`, `wf init`, `wf create`, and `wf sync`
+- **List command** — lists manifest worktrees and whether their paths exist
+- **Status command** — checks manifest/Git drift and shared links without changing them
+- **Remove command** — removes non-main worktrees and optionally deletes merged local branches
+- **Commander-powered help** — generated command help for `wf` and its subcommands
 
 ## Installation
 
 ### Run locally
 
-`wf` is launched through `bin/wf` and requires Bun:
+Run the CLI from source with Bun:
 
 ```bash
-./bin/wf --help
+bun src/cli.ts --help
 ```
 
 ### Install with shell script
@@ -84,6 +87,38 @@ Sync the manifest and shared links:
 ```bash
 wf sync
 ```
+
+List manifest worktrees without syncing, including missing paths:
+
+```bash
+wf list
+wf list --json
+```
+
+Check all worktrees or one worktree identified by branch name or path:
+
+```bash
+wf status
+wf status feature/a
+wf status ./feature-a --json
+```
+
+Status exits with `0` when healthy, `1` when drift is found, and `2` when the
+check cannot run. It does not repair links or refresh the manifest; use `wf sync`
+to repair supported drift.
+
+Remove a non-main worktree by branch name or path:
+
+```bash
+wf remove feature/a
+wf remove ./feature-a --force
+wf remove feature/a --delete-branch
+```
+
+Removal refuses dirty worktrees unless `--force` is given; force removal discards
+their local changes. Branches are kept by default. `--delete-branch` uses Git's
+safe deletion check and keeps unmerged branches. An already-missing directory
+is pruned from Git and the manifest. The main worktree cannot be removed.
 
 ## Manifest
 
