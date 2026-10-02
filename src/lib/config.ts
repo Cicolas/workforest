@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { runGit } from "./git.ts";
 import {
   serializeManifest,
+  type SharedPath,
+  type SharedPathOptions,
   type WorkforestManifest,
   type WorktreeEntry,
 } from "./manifest.ts";
@@ -13,7 +15,7 @@ interface ParseState {
   repoName?: string;
   repoRoot?: string;
   worktrees: WorktreeEntry[];
-  shared: Record<string, string>;
+  shared: Record<string, SharedPath>;
 }
 
 function parseYamlListItem(line: string): string {
@@ -109,6 +111,53 @@ function parseWorktreeBlock(
   };
 }
 
+function parseSharedBlock(
+  lines: string[],
+  startIndex: number,
+): { source: string; entry: SharedPath; nextIndex: number } {
+  const pair = parseKeyValue(lines[startIndex].trim());
+  const source = parseYamlScalar(pair.key) ?? "";
+  let nextIndex = startIndex + 1;
+
+  if (pair.value !== "") {
+    if (nextIndex < lines.length && lines[nextIndex].startsWith("    ")) {
+      throw new Error(
+        `Invalid shared entry for ${source}: use a target mapping to set options.`,
+      );
+    }
+    return { source, entry: parseYamlScalar(pair.value) ?? "", nextIndex };
+  }
+
+  let target: string | null = null;
+  let copy: boolean | undefined;
+  while (nextIndex < lines.length && lines[nextIndex].startsWith("    ")) {
+    const option = parseKeyValue(lines[nextIndex].trim());
+    if (option.key === "target") {
+      target = parseYamlScalar(option.value);
+    } else if (option.key === "copy") {
+      if (option.value !== "true" && option.value !== "false") {
+        throw new Error(
+          `Invalid shared copy option for ${source}: expected true or false.`,
+        );
+      }
+      copy = option.value === "true";
+    } else {
+      throw new Error(`Unknown shared option for ${source}: ${option.key}`);
+    }
+    nextIndex += 1;
+  }
+
+  if (!target) {
+    throw new Error(`Invalid shared entry for ${source}: missing target.`);
+  }
+
+  const entry: SharedPathOptions = {
+    target,
+    ...(copy !== undefined ? { copy } : {}),
+  };
+  return { source, entry, nextIndex };
+}
+
 export function parseManifest(content: string): WorkforestManifest {
   const lines = content
     .split(/\r?\n/)
@@ -168,10 +217,9 @@ export function parseManifest(content: string): WorkforestManifest {
     if (line === "shared:") {
       index += 1;
       while (index < lines.length && lines[index].startsWith("  ")) {
-        const pair = parseKeyValue(lines[index].trim());
-        state.shared[parseYamlScalar(pair.key) ?? ""] =
-          parseYamlScalar(pair.value) ?? "";
-        index += 1;
+        const parsed = parseSharedBlock(lines, index);
+        state.shared[parsed.source] = parsed.entry;
+        index = parsed.nextIndex;
       }
       continue;
     }

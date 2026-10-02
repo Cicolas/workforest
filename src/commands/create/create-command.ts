@@ -15,7 +15,7 @@ export function registerCreateCommand(program: Command): void {
       try {
         const result = createWorktree(process.cwd(), folder, branchName);
         console.log(
-          `Created ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared link(s), manifest updated at ${result.manifestPath})`,
+          `Created ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared path(s), manifest updated at ${result.manifestPath})`,
         );
       } catch (error) {
         reportAndExit(error);

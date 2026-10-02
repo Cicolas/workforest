@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readlinkSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { readManifest } from "../../lib/config.ts";
@@ -14,6 +14,8 @@ export type StatusFindingCode =
   | "manifest_missing_git_worktree"
   | "git_missing_manifest_worktree"
   | "worktree_path_missing"
+  | "shared_copy_missing"
+  | "shared_copy_wrong_type"
   | "shared_link_missing"
   | "shared_link_wrong_type"
   | "shared_link_wrong_target"
@@ -118,7 +120,7 @@ export function statusWorktrees(cwd: string, target?: string): StatusResult {
       a.targetPath < b.targetPath ? -1 : a.targetPath > b.targetPath ? 1 : 0,
     );
 
-    for (const { sourcePath, targetPath } of links) {
+    for (const { sourcePath, targetPath, copy } of links) {
       if (!existsSync(sourcePath)) {
         continue;
       }
@@ -131,10 +133,28 @@ export function statusWorktrees(cwd: string, target?: string): StatusResult {
           throw error;
         }
         addFinding(
-          "shared_link_missing",
+          copy ? "shared_copy_missing" : "shared_link_missing",
           targetPath,
-          `Shared link is missing; expected a symlink to ${sourcePath}.`,
+          copy
+            ? `Shared copy is missing; expected a copy of ${sourcePath}.`
+            : `Shared link is missing; expected a symlink to ${sourcePath}.`,
         );
+        continue;
+      }
+
+      if (copy) {
+        const sourceStat = statSync(sourcePath);
+        if (
+          stat.isSymbolicLink() ||
+          stat.isDirectory() !== sourceStat.isDirectory() ||
+          stat.isFile() !== sourceStat.isFile()
+        ) {
+          addFinding(
+            "shared_copy_wrong_type",
+            targetPath,
+            `Expected a shared ${sourceStat.isDirectory() ? "directory" : "file"} copy of ${sourcePath}.`,
+          );
+        }
         continue;
       }
 

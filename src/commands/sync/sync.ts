@@ -5,6 +5,10 @@ import { discoverRepo, runGit } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import { applySharedLinks } from "../../lib/shared-links.ts";
 
+export interface SyncOptions {
+  refresh?: boolean | string;
+}
+
 export interface SyncResult {
   manifestPath: string;
   createdWorktrees: string[];
@@ -42,7 +46,10 @@ function mergeWorktreeSettings(
   });
 }
 
-export function syncWorktrees(cwd: string): SyncResult {
+export function syncWorktrees(
+  cwd: string,
+  options: SyncOptions = {},
+): SyncResult {
   const { manifestPath, manifest } = readManifest(cwd);
   const beforePaths = pathSet(manifest.worktrees);
 
@@ -73,6 +80,7 @@ export function syncWorktrees(cwd: string): SyncResult {
       worktree.path,
       manifest.shared,
       worktree.ignoreShared,
+      options.refresh,
     );
   }
 

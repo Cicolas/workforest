@@ -23,7 +23,7 @@ export function registerStatusCommand(program: Command): void {
   program
     .command("status")
     .description(
-      "Check worktree registrations and shared links without modifying them.",
+      "Check worktree registrations and shared links and copies without modifying them.",
     )
     .argument("[target]", "worktree path or branch name to inspect")
     .option("--json", "print a structured status result")

@@ -5,6 +5,13 @@ export interface WorktreeEntry {
   ignoreShared?: string[];
 }
 
+export interface SharedPathOptions {
+  target: string;
+  copy?: boolean;
+}
+
+export type SharedPath = string | SharedPathOptions;
+
 export interface WorkforestManifest {
   version: 1;
   repo: {
@@ -12,7 +19,7 @@ export interface WorkforestManifest {
     root: string;
   };
   worktrees: WorktreeEntry[];
-  shared: Record<string, string>;
+  shared: Record<string, SharedPath>;
 }
 
 function quoteYamlString(value: string): string {
@@ -66,8 +73,16 @@ export function serializeManifest(manifest: WorkforestManifest): string {
     lines.push(
       "  # source path in the main worktree: target path to create in other worktrees",
     );
-    for (const [sourcePath, targetPath] of Object.entries(manifest.shared)) {
-      lines.push(`  ${toYamlScalar(sourcePath)}: ${toYamlScalar(targetPath)}`);
+    for (const [sourcePath, entry] of Object.entries(manifest.shared)) {
+      if (typeof entry === "string") {
+        lines.push(`  ${toYamlScalar(sourcePath)}: ${toYamlScalar(entry)}`);
+      } else {
+        lines.push(`  ${toYamlScalar(sourcePath)}:`);
+        lines.push(`    target: ${toYamlScalar(entry.target)}`);
+        if (entry.copy !== undefined) {
+          lines.push(`    copy: ${entry.copy ? "true" : "false"}`);
+        }
+      }
     }
   }
 

@@ -140,12 +140,20 @@ worktrees:
       - .env
 shared:
   .env: .env
-  assets/: assets/
+  assets/:
+    target: assets/
+  .env.local:
+    target: .env.local
+    copy: true
 ```
 
 Behavior:
 
-- `shared` maps paths from the main worktree to paths created in other worktrees
+- `shared` accepts both `source: target` and `source:` with a nested `target` key; both create symlinks by default
+- Add `copy: true` to a nested entry to copy a file or directory instead of linking it; `copy: false` creates a symlink
+- `wf create` and `wf sync` create missing copies from the main worktree and preserve existing targets, so worktree edits remain independent
+- `wf sync --refresh` replaces all copied targets; `wf sync --refresh .env.local` refreshes only the given source or target path (also supports individual files within a glob)
+- `wf status` checks that copies exist and match the source's file or directory type; it does not compare their contents
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
 

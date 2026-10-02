@@ -1,4 +1,5 @@
 import {
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -7,12 +8,15 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
+
+import type { SharedPath } from "./manifest.ts";
 
 export interface SharedLink {
   sourceRelative: string;
   sourcePath: string;
   targetPath: string;
+  copy: boolean;
 }
 
 function prepareSharedTarget(
@@ -79,19 +83,23 @@ function collectRecursiveFiles(rootPath: string): string[] {
 export function expandSharedLinks(
   repoRoot: string,
   worktreePath: string,
-  shared: Record<string, string>,
+  shared: Record<string, SharedPath>,
   ignoredShared: Set<string>,
 ): SharedLink[] {
   const links: SharedLink[] = [];
 
-  for (const [sourceRelative, targetRelative] of Object.entries(shared)) {
+  for (const [sourceRelative, entry] of Object.entries(shared)) {
     if (ignoredShared.has(sourceRelative)) {
       continue;
     }
 
+    const targetRelative = typeof entry === "string" ? entry : entry.target;
+    const copy = typeof entry !== "string" && entry.copy === true;
+
     if (!isGlobPattern(sourceRelative)) {
       links.push({
         sourceRelative,
+        copy,
         sourcePath: resolve(repoRoot, sourceRelative),
         targetPath: resolve(worktreePath, targetRelative),
       });
@@ -111,6 +119,7 @@ export function expandSharedLinks(
         const nestedRelative = relative(sourceBase, sourcePath);
         links.push({
           sourceRelative,
+          copy,
           sourcePath,
           targetPath: resolve(worktreePath, targetRelative, nestedRelative),
         });
@@ -134,19 +143,63 @@ export function expandSharedLinks(
 export function applySharedLinks(
   repoRoot: string,
   worktreePath: string,
-  shared: Record<string, string>,
+  shared: Record<string, SharedPath>,
   ignoredShared: string[] = [],
+  refresh: boolean | string = false,
 ): number {
   let created = 0;
   const ignoredSharedSet = new Set(ignoredShared);
 
-  for (const { sourcePath, targetPath } of expandSharedLinks(
-    repoRoot,
-    worktreePath,
-    shared,
-    ignoredSharedSet,
-  )) {
+  for (const {
+    sourceRelative,
+    sourcePath,
+    targetPath,
+    copy,
+  } of expandSharedLinks(repoRoot, worktreePath, shared, ignoredSharedSet)) {
     if (!existsSync(sourcePath)) {
+      continue;
+    }
+
+    if (copy) {
+      const shouldRefresh =
+        refresh === true ||
+        (typeof refresh === "string" &&
+          [
+            sourceRelative,
+            relative(repoRoot, sourcePath),
+            relative(worktreePath, targetPath),
+          ].includes(refresh));
+
+      if (!shouldRefresh) {
+        try {
+          lstatSync(targetPath);
+          continue;
+        } catch (error) {
+          if (
+            !(
+              error instanceof Error &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+          ) {
+            throw error;
+          }
+        }
+      }
+
+      if (
+        sourcePath === targetPath ||
+        sourcePath.startsWith(`${targetPath}${sep}`) ||
+        targetPath.startsWith(`${sourcePath}${sep}`)
+      ) {
+        throw new Error(
+          `Shared copy source and target must not overlap: ${sourcePath} -> ${targetPath}`,
+        );
+      }
+      rmSync(targetPath, { recursive: true, force: true });
+      mkdirSync(dirname(targetPath), { recursive: true });
+      cpSync(sourcePath, targetPath, { recursive: true, dereference: true });
+      created += 1;
       continue;
     }
 
