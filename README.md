@@ -134,7 +134,12 @@ wf status ./feature-a --json
 
 Status exits with `0` when healthy, `1` when drift is found, and `2` when the
 check cannot run. It does not repair links or refresh the manifest; use `wf sync`
-to repair supported drift.
+to repair supported drift. Inventory drift uses stable finding codes:
+`worktree_branch_mismatch` for a changed branch, `worktree_detached_mismatch`
+when the manifest and Git disagree about detachment, and
+`worktree_main_mismatch` when the cached main role differs from Git. Status
+checks the live main role when deciding which worktree is the shared source;
+its JSON remains `{ "level": "...", "findings": [...] }`.
 
 Remove a non-main worktree by branch name or path:
 
@@ -148,6 +153,15 @@ Removal refuses dirty worktrees unless `--force` is given; force removal discard
 their local changes. Branches are kept by default. `--delete-branch` uses Git's
 safe deletion check and keeps unmerged branches. An already-missing directory
 is pruned from Git and the manifest. The main worktree cannot be removed.
+
+Removal reads current Git registrations before pruning or deleting anything.
+If a cached branch target points to a worktree that has switched branches or
+detached, the command refuses that obsolete association, even if another
+worktree now uses the old branch. Use the intended worktree's path or run
+`wf sync` to refresh the inventory before selecting a branch. Path-based
+`--delete-branch` acts on the current branch; detached worktrees have no branch
+to delete. Safe branch deletion can fail after worktree removal: the branch
+is retained, the manifest is reconciled, and the command reports the failure.
 
 ## Manifest
 
@@ -185,6 +199,23 @@ Behavior:
 - `wf status` checks that copies exist and match the source's file or directory type; it does not compare their contents
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
+
+Sharing destinations must be strictly inside their destination worktree. Targets
+cannot be the worktree root, contain a `.git` component, alias Git metadata,
+overlap any shared source, or overlap another planned target. Existing ancestor
+symlinks are resolved during validation, so a directory link cannot redirect a
+write outside the worktree or onto source data. A target symlink itself can be
+replaced safely: its referent is preserved. External shared sources remain
+supported when these destination and source-preservation rules hold.
+
+Create validates the configuration before creating a branch or worktree. Sync
+validates every available destination before pruning or changing shared files.
+Sharing rechecks the complete plan against the filesystem immediately before
+application, including ancestors materialized by a new checkout. A checkout
+that introduces an unsafe ancestor can therefore fail after Git creation; it
+is retained for inspection and recovery. These checks do not coordinate with
+concurrent filesystem changes and do not make Git and filesystem operations a
+transaction.
 
 ## Development
 

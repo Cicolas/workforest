@@ -4,7 +4,11 @@ import { resolve } from "node:path";
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
-import { applySharedLinks } from "../../lib/shared-links.ts";
+import {
+  applySharedLinks,
+  preflightSharedLinks,
+  expandSharedLinks,
+} from "../../lib/shared-links.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface SyncOptions {
@@ -28,7 +32,26 @@ export function syncWorktrees(
   options: SyncOptions = {},
 ): SyncResult {
   const { manifestPath, manifest } = readManifest(cwd);
-  validateSharedRepo(manifest);
+  const beforeRepo = validateSharedRepo(manifest);
+  expandSharedLinks(
+    manifest.repo.root,
+    manifest.repo.root,
+    manifest.shared,
+    new Set(),
+  );
+  for (const worktree of mergeWorktreeSettings(
+    manifest.worktrees,
+    beforeRepo.activeWorktrees,
+  )) {
+    if (!worktree.isMain && existsSync(worktree.path)) {
+      preflightSharedLinks(
+        manifest.repo.root,
+        worktree.path,
+        manifest.shared,
+        worktree.ignoreShared,
+      );
+    }
+  }
   const beforePaths = pathSet(manifest.worktrees);
 
   const pruneResult = runGit(manifest.repo.root, [

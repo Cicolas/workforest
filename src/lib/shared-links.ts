@@ -5,10 +5,11 @@ import {
   mkdirSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 
 import type { SharedPath } from "./manifest.ts";
 
@@ -140,6 +141,119 @@ export function expandSharedLinks(
   return links;
 }
 
+// Resolve existing ancestors without following the destination leaf: replacing a
+// symlink must remove the link itself, never its referent.
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch (error) {
+    if (
+      !(error instanceof Error && "code" in error && error.code === "ENOENT")
+    ) {
+      throw error;
+    }
+    // A dangling symlink is an existing ancestor, not a missing directory.
+    try {
+      if (lstatSync(path).isSymbolicLink()) {
+        throw new Error(
+          `Cannot validate path through a broken symlink: ${path}`,
+        );
+      }
+    } catch (statError) {
+      if (
+        !(
+          statError instanceof Error &&
+          "code" in statError &&
+          statError.code === "ENOENT"
+        )
+      ) {
+        throw statError;
+      }
+    }
+    const parent = dirname(path);
+    if (parent === path) throw error;
+    return resolve(canonicalPath(parent), basename(path));
+  }
+}
+
+function overlaps(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}${sep}`) || b.startsWith(`${a}${sep}`);
+}
+
+function validateDestination(worktreePath: string, targetPath: string): string {
+  const root = resolve(worktreePath);
+  const target = resolve(targetPath);
+  const canonicalRoot = canonicalPath(root);
+  const canonicalTarget = resolve(
+    canonicalPath(dirname(target)),
+    basename(target),
+  );
+  for (const [boundary, destination] of [
+    [root, target],
+    [canonicalRoot, canonicalTarget],
+  ]) {
+    const nested = relative(boundary, destination);
+    if (
+      !nested ||
+      nested === ".." ||
+      nested.startsWith(`..${sep}`) ||
+      resolve(boundary, nested) !== destination
+    ) {
+      throw new Error(
+        `Shared target must be inside the destination worktree, not its root: ${targetPath}`,
+      );
+    }
+    if (nested.split(sep).includes(".git")) {
+      throw new Error(
+        `Shared target must not replace Git metadata: ${targetPath}`,
+      );
+    }
+  }
+  return canonicalTarget;
+}
+
+/** Validate every known operation before Git pruning/creation or file replacement. */
+export function preflightSharedLinks(
+  repoRoot: string,
+  worktreePath: string,
+  shared: Record<string, SharedPath>,
+  ignoredShared: string[] = [],
+): SharedLink[] {
+  const ignored = new Set(ignoredShared);
+  const links = expandSharedLinks(repoRoot, worktreePath, shared, ignored);
+  const sources = links.map((link) => canonicalPath(link.sourcePath));
+  const targets = links.map((link) =>
+    resolve(canonicalPath(dirname(link.targetPath)), basename(link.targetPath)),
+  );
+  for (let i = 0; i < links.length; i++) {
+    for (let j = 0; j < links.length; j++) {
+      if (
+        overlaps(targets[i], sources[j]) ||
+        overlaps(links[i].targetPath, links[j].sourcePath)
+      ) {
+        throw new Error(
+          `Shared source and target must not overlap: ${links[j].sourcePath} -> ${links[i].targetPath}`,
+        );
+      }
+    }
+    validateDestination(worktreePath, links[i].targetPath);
+    for (let j = 0; j < i; j++) {
+      if (overlaps(targets[i], targets[j])) {
+        throw new Error(
+          `Shared targets must not overlap: ${links[j].targetPath} -> ${links[i].targetPath}`,
+        );
+      }
+    }
+  }
+  // Validate declared glob containers even when no sources currently match.
+  for (const [source, entry] of Object.entries(shared)) {
+    if (ignored.has(source)) continue;
+    const target = typeof entry === "string" ? entry : entry.target;
+    validateDestination(worktreePath, resolve(worktreePath, target));
+  }
+  return links;
+}
+
 export function applySharedLinks(
   repoRoot: string,
   worktreePath: string,
@@ -148,14 +262,13 @@ export function applySharedLinks(
   refresh: boolean | string = false,
 ): number {
   let created = 0;
-  const ignoredSharedSet = new Set(ignoredShared);
 
   for (const {
     sourceRelative,
     sourcePath,
     targetPath,
     copy,
-  } of expandSharedLinks(repoRoot, worktreePath, shared, ignoredSharedSet)) {
+  } of preflightSharedLinks(repoRoot, worktreePath, shared, ignoredShared)) {
     if (!existsSync(sourcePath)) {
       continue;
     }
