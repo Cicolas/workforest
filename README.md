@@ -165,6 +165,12 @@ is retained, the manifest is reconciled, and the command reports the failure.
 
 ## Manifest
 
+The parser supports the manifest structure shown below, rather than the full
+YAML language. Quote source names containing colons or spaces. Double-quoted
+keys and values use JSON string escapes; single-quoted strings escape an
+apostrophe by doubling it (`'owner''s:settings'`). Rewrites preserve these
+names, sharing options, and exclusions, using double quotes where needed.
+
 Example `workforest.yaml`:
 
 ```yaml
