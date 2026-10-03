@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
-import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
+import { pruneWorktrees, validateSharedRepo } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import {
   applySharedLinks,
@@ -57,27 +57,11 @@ export function syncWorktrees(
 
   const progress = new OperationProgress();
   try {
-    const pruneResult = runGit(manifest.repo.root, [
-      "worktree",
-      "prune",
-      "--expire",
-      "now",
-    ]);
-    if (!pruneResult.success) {
-      progress.record(
-        `Git pruning did not finish in ${manifest.repo.root}; inspect registrations`,
-        false,
-      );
-      throw new Error(pruneResult.stderr || "Failed to prune git worktrees.");
-    }
-
-    const currentRepo = discoverRepo(manifest.repo.root);
-    const registeredPaths = pathSet(currentRepo.activeWorktrees);
-    for (const entry of beforeRepo.activeWorktrees) {
-      if (!registeredPaths.has(resolve(entry.path))) {
-        progress.record(`Pruned Git worktree registration ${entry.path}`);
-      }
-    }
+    const currentRepo = pruneWorktrees(
+      manifest.repo.root,
+      progress.record,
+      beforeRepo,
+    );
     const mergedWorktrees = mergeWorktreeSettings(
       manifest.worktrees,
       currentRepo.activeWorktrees,

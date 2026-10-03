@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
-import { discoverRepo, runGit } from "../../lib/git.ts";
+import { discoverRepo, pruneWorktrees, runGit } from "../../lib/git.ts";
 import { resolveWorktreeTarget } from "../../lib/target.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
@@ -20,28 +20,6 @@ export interface RemoveResult {
   branchDeletionRequested: boolean;
   branchDeleted: boolean;
   manifestPath: string;
-}
-
-function pruneWorktrees(
-  repoRoot: string,
-  onProgress: (action: string, completed?: boolean) => void,
-): void {
-  const before = discoverRepo(repoRoot).activeWorktrees;
-  const result = runGit(repoRoot, ["worktree", "prune", "--expire", "now"]);
-  if (!result.success) {
-    onProgress(
-      `Git pruning did not finish in ${repoRoot}; inspect registrations`,
-      false,
-    );
-    throw new Error(result.stderr || "Failed to prune git worktrees.");
-  }
-  const after = new Set(
-    discoverRepo(repoRoot).activeWorktrees.map((entry) => entry.path),
-  );
-  for (const entry of before) {
-    if (!after.has(entry.path))
-      onProgress(`Pruned Git worktree registration ${entry.path}`);
-  }
 }
 
 export function removeWorktree(

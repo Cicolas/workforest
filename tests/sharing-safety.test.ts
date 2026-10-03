@@ -3,65 +3,23 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { readManifest, writeManifest } from "../src/lib/config.ts";
-import type { SharedPath } from "../src/lib/manifest.ts";
+import {
+  createSharingFixtureSuite,
+  git,
+  runCli as run,
+  snapshot,
+} from "./fixtures/shared-repo.ts";
 
-const roots: string[] = [];
-const cli = resolve(import.meta.dir, "../src/cli.ts");
-function run(cwd: string, ...args: string[]) {
-  return Bun.spawnSync({
-    cmd: [process.execPath, cli, ...args],
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-}
-function git(cwd: string, ...args: string[]) {
-  const result = Bun.spawnSync({
-    cmd: ["git", ...args],
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode) throw new Error(result.stderr.toString());
-  return result.stdout.toString();
-}
-function fixture(shared: Record<string, SharedPath>) {
-  const cwd = mkdtempSync(join(tmpdir(), "wf-sharing-safety-"));
-  roots.push(cwd);
-  const main = join(cwd, "main");
-  const feature = join(cwd, "feature");
-  mkdirSync(main);
-  git(main, "init", "-b", "main");
-  git(main, "config", "user.name", "Test");
-  git(main, "config", "user.email", "test@example.com");
-  writeFileSync(join(main, "data"), "source");
-  git(main, "add", ".");
-  git(main, "commit", "-m", "Initial fixture");
-  expect(run(cwd, "init", "main").exitCode).toBe(0);
-  const loaded = readManifest(cwd);
-  writeManifest(loaded.manifestPath, { ...loaded.manifest, shared });
-  return { cwd, main, feature, manifestPath: loaded.manifestPath };
-}
-function snapshot(main: string, manifestPath: string) {
-  return {
-    branches: git(main, "branch", "--list"),
-    registrations: git(main, "worktree", "list", "--porcelain"),
-    manifest: readFileSync(manifestPath, "utf8"),
-  };
-}
-afterEach(() => {
-  for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true });
-});
+const { fixture, cleanup } = createSharingFixtureSuite("wf-sharing-safety-");
+afterEach(cleanup);
 
 test("invalid glob destinations leave create and sync Git state and manifest unchanged", () => {
   const { cwd, main, feature, manifestPath } = fixture({
@@ -205,5 +163,42 @@ for (const [source, target] of [
       "nested local",
     );
     expect(readFileSync(join(main, "data"), "utf8")).toBe("source");
+  });
+}
+
+for (const parentFirst of [true, false]) {
+  test(`sync rejects lexically overlapping targets through an existing alias (${parentFirst ? "parent" : "child"} first)`, () => {
+    const shared = parentFirst
+      ? { assets: "redirect", "other-config": "redirect/config" }
+      : { "other-config": "redirect/config", assets: "redirect" };
+    const { cwd, main, feature, manifestPath } = fixture(shared);
+    mkdirSync(join(main, "assets"));
+    writeFileSync(join(main, "assets", "config"), "source config preserved");
+    writeFileSync(join(main, "other-config"), "other config preserved");
+    git(main, "worktree", "add", "-b", "feature", feature);
+    mkdirSync(join(feature, "safe"));
+    writeFileSync(join(feature, "safe", "config"), "independent safe config");
+    symlinkSync("safe", join(feature, "redirect"));
+    const before = snapshot(main, manifestPath);
+    const result = run(cwd, "sync");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain(
+      "Shared targets must not overlap",
+    );
+    expect(result.stderr.toString()).not.toContain("Partial completion");
+    expect(snapshot(main, manifestPath)).toEqual(before);
+    expect(lstatSync(join(main, "assets")).isDirectory()).toBe(true);
+    expect(lstatSync(join(main, "assets", "config")).isFile()).toBe(true);
+    expect(readFileSync(join(main, "assets", "config"), "utf8")).toBe(
+      "source config preserved",
+    );
+    expect(readFileSync(join(main, "other-config"), "utf8")).toBe(
+      "other config preserved",
+    );
+    expect(lstatSync(join(feature, "redirect")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(feature, "redirect"))).toBe("safe");
+    expect(readFileSync(join(feature, "safe", "config"), "utf8")).toBe(
+      "independent safe config",
+    );
   });
 }

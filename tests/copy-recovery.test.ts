@@ -3,66 +3,24 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readManifest, writeManifest } from "../src/lib/config.ts";
-import type { SharedPath } from "../src/lib/manifest.ts";
+import {
+  createSharingFixtureSuite,
+  git,
+  runCli as run,
+  snapshot,
+  cliPath as cli,
+} from "./fixtures/shared-repo.ts";
 
-const roots: string[] = [];
-const cli = resolve(import.meta.dir, "../src/cli.ts");
-function run(cwd: string, ...args: string[]) {
-  return Bun.spawnSync({
-    cmd: [process.execPath, cli, ...args],
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-}
-function git(cwd: string, ...args: string[]) {
-  const result = Bun.spawnSync({
-    cmd: ["git", ...args],
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode) throw new Error(result.stderr.toString());
-  return result.stdout.toString();
-}
-function fixture(shared: Record<string, SharedPath>) {
-  const cwd = mkdtempSync(join(tmpdir(), "wf-copy-recovery-"));
-  roots.push(cwd);
-  const main = join(cwd, "main");
-  const feature = join(cwd, "feature");
-  mkdirSync(main);
-  git(main, "init", "-b", "main");
-  git(main, "config", "user.name", "Test");
-  git(main, "config", "user.email", "test@example.com");
-  writeFileSync(join(main, "data"), "source");
-  git(main, "add", ".");
-  git(main, "commit", "-m", "Initial fixture");
-  expect(run(cwd, "init", "main").exitCode).toBe(0);
-  const loaded = readManifest(cwd);
-  writeManifest(loaded.manifestPath, { ...loaded.manifest, shared });
-  return { cwd, main, feature, manifestPath: loaded.manifestPath };
-}
-function snapshot(main: string, manifestPath: string) {
-  return {
-    branches: git(main, "branch", "--list"),
-    registrations: git(main, "worktree", "list", "--porcelain"),
-    manifest: readFileSync(manifestPath, "utf8"),
-  };
-}
-afterEach(() => {
-  for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true });
-});
+const { fixture, cleanup } = createSharingFixtureSuite("wf-copy-recovery-");
+afterEach(cleanup);
 
 test("failed directory copy preparation preserves the independent copy and source", () => {
   const { cwd, main, feature, manifestPath } = fixture({

@@ -296,7 +296,10 @@ export function preflightSharedLinks(
     }
     validateDestination(worktreePath, links[i].targetPath);
     for (let j = 0; j < i; j++) {
-      if (overlaps(targets[i], targets[j])) {
+      if (
+        overlaps(targets[i], targets[j]) ||
+        overlaps(links[i].targetPath, links[j].targetPath)
+      ) {
         throw new Error(
           `Shared targets must not overlap: ${links[j].targetPath} -> ${links[i].targetPath}`,
         );
