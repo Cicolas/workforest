@@ -266,6 +266,95 @@ describe("wf remove CLI", () => {
     );
   }
 
+  test("rejects an obsolete branch and deletes only the live branch when removing by path", () => {
+    const { root, main, feature } = setupRepo();
+    git(feature, "checkout", "-b", "feature/current");
+    const beforeManifest = readFileSync(join(root, "workforest.yaml"), "utf8");
+    const beforeGit = git(main, "worktree", "list", "--porcelain");
+    const obsolete = runRemove(root, "feature/demo", "--delete-branch");
+    expect(obsolete.exitCode).toBe(1);
+    expect(obsolete.stderr.toString()).toMatch(/obsolete.*association/i);
+    expect(existsSync(feature)).toBe(true);
+    expect(git(main, "worktree", "list", "--porcelain")).toBe(beforeGit);
+    expect(readFileSync(join(root, "workforest.yaml"), "utf8")).toBe(
+      beforeManifest,
+    );
+    const current = runRemove(root, feature, "--delete-branch");
+    expect(current.exitCode).toBe(0);
+    expect(current.stdout.toString()).toContain("[feature/current]");
+    expect(existsSync(feature)).toBe(false);
+    expect(git(main, "branch", "--list", "feature/current")).toBe("");
+    expect(git(main, "branch", "--list", "feature/demo")).toContain(
+      "feature/demo",
+    );
+    expect(readManifest(root).manifest.worktrees).toHaveLength(1);
+  });
+
+  test("removes a detached worktree by path without deleting its cached branch", () => {
+    const { root, main, feature } = setupRepo();
+    git(feature, "checkout", "--detach");
+    const result = runRemove(root, feature, "--delete-branch");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain("[detached]");
+    expect(existsSync(feature)).toBe(false);
+    expect(git(main, "branch", "--list", "feature/demo")).toContain(
+      "feature/demo",
+    );
+    expect(readManifest(root).manifest.worktrees).toHaveLength(1);
+  });
+
+  test("never redirects an obsolete branch onto a different registered worktree", () => {
+    const { root, main, feature } = setupRepo();
+    git(feature, "checkout", "-b", "feature/current");
+    const other = join(root, "other");
+    git(main, "worktree", "add", other, "feature/demo");
+    const beforeManifest = readFileSync(join(root, "workforest.yaml"), "utf8");
+    const beforeGit = git(main, "worktree", "list", "--porcelain");
+    const result = runRemove(
+      root,
+      "feature/demo",
+      "--force",
+      "--delete-branch",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toMatch(/obsolete.*association/i);
+    expect(existsSync(feature)).toBe(true);
+    expect(existsSync(other)).toBe(true);
+    expect(git(main, "worktree", "list", "--porcelain")).toBe(beforeGit);
+    expect(readFileSync(join(root, "workforest.yaml"), "utf8")).toBe(
+      beforeManifest,
+    );
+  });
+
+  test("inspects a missing worktree's current branch before pruning", () => {
+    const { root, main, feature } = setupRepo();
+    git(feature, "checkout", "-b", "feature/current");
+    rmSync(feature, { recursive: true });
+    const beforeGit = git(main, "worktree", "list", "--porcelain");
+    const obsolete = runRemove(root, "feature/demo", "--delete-branch");
+    expect(obsolete.exitCode).toBe(1);
+    expect(git(main, "worktree", "list", "--porcelain")).toBe(beforeGit);
+    const result = runRemove(root, feature, "--delete-branch");
+    expect(result.exitCode).toBe(0);
+    expect(git(main, "branch", "--list", "feature/current")).toBe("");
+    expect(git(main, "branch", "--list", "feature/demo")).toContain(
+      "feature/demo",
+    );
+    expect(readManifest(root).manifest.worktrees).toHaveLength(1);
+  });
+
+  test("accepts a live branch target that is absent from the cached inventory", () => {
+    const { root, main, feature } = setupRepo();
+    git(feature, "checkout", "-b", "feature/current");
+    const result = runRemove(root, "feature/current", "--delete-branch");
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(feature)).toBe(false);
+    expect(git(main, "branch", "--list", "feature/current")).toBe("");
+    expect(git(main, "branch", "--list", "feature/demo")).toContain(
+      "feature/demo",
+    );
+  });
+
   test("reports force removal and successful requested branch deletion", () => {
     const { root, feature } = setupRepo();
     writeFileSync(join(feature, "untracked.txt"), "dirty\n");

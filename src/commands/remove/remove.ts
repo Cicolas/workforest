@@ -33,10 +33,51 @@ export function removeWorktree(
   options: RemoveOptions = {},
 ): RemoveResult {
   const { manifestPath, manifest } = readManifest(cwd);
-  const worktree = resolveWorktreeTarget(cwd, target, manifest.worktrees);
+  // Inspect registrations before pruning: the inventory is a cache, and a
+  // worktree may have switched branches (or detached) since the last sync.
+  const discovery = discoverRepo(manifest.repo.root);
+  const liveByPath = new Map(
+    discovery.activeWorktrees.map((entry) => [resolve(entry.path), entry]),
+  );
+  const entriesByPath = new Map(
+    manifest.worktrees.map((entry) => [resolve(entry.path), entry]),
+  );
+  for (const [path, entry] of liveByPath) {
+    entriesByPath.set(path, entry);
+  }
+
+  if (!entriesByPath.has(resolve(cwd, target))) {
+    const cachedMatches = manifest.worktrees.filter(
+      (entry) => entry.branch === target,
+    );
+    // Retain the existing ambiguity guard even when cached entries are stale.
+    if (cachedMatches.length > 1) {
+      resolveWorktreeTarget(cwd, target, manifest.worktrees);
+    }
+    const obsolete = cachedMatches.find((entry) => {
+      const live = liveByPath.get(resolve(entry.path));
+      return live !== undefined && live.branch !== target;
+    });
+    if (obsolete) {
+      const live = liveByPath.get(resolve(obsolete.path))!;
+      throw new Error(
+        `Obsolete branch association '${target}' for ${resolve(obsolete.path)}: Git now reports ${live.branch ?? "detached HEAD"}. Use the worktree path or run wf sync before choosing a branch target.`,
+      );
+    }
+  }
+
+  const worktree = resolveWorktreeTarget(cwd, target, [
+    ...entriesByPath.values(),
+  ]);
   const worktreePath = resolve(worktree.path);
 
-  if (worktree.isMain || worktreePath === resolve(manifest.repo.root)) {
+  if (
+    worktree.isMain ||
+    manifest.worktrees.some(
+      (entry) => resolve(entry.path) === worktreePath && entry.isMain,
+    ) ||
+    worktreePath === discovery.repoRoot
+  ) {
     throw new Error(`Cannot remove the main worktree: ${worktreePath}`);
   }
 

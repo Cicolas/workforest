@@ -13,6 +13,9 @@ import {
 export type StatusFindingCode =
   | "manifest_missing_git_worktree"
   | "git_missing_manifest_worktree"
+  | "worktree_branch_mismatch"
+  | "worktree_detached_mismatch"
+  | "worktree_main_mismatch"
   | "worktree_path_missing"
   | "shared_copy_missing"
   | "shared_copy_wrong_type"
@@ -90,6 +93,24 @@ export function statusWorktrees(cwd: string, target?: string): StatusResult {
       continue;
     }
 
+    const gitEntry = gitEntries.get(worktree.path);
+    if (gitEntry && manifestEntry.branch !== gitEntry.branch) {
+      addFinding(
+        manifestEntry.branch === null || gitEntry.branch === null
+          ? "worktree_detached_mismatch"
+          : "worktree_branch_mismatch",
+        worktree.path,
+        `Manifest branch is ${manifestEntry.branch ?? "detached"}; Git branch is ${gitEntry.branch ?? "detached"}.`,
+      );
+    }
+    if (gitEntry && manifestEntry.isMain !== gitEntry.isMain) {
+      addFinding(
+        "worktree_main_mismatch",
+        worktree.path,
+        `Manifest main role is ${manifestEntry.isMain}; Git main role is ${gitEntry.isMain}.`,
+      );
+    }
+
     if (!gitEntries.has(worktree.path)) {
       addFinding(
         "manifest_missing_git_worktree",
@@ -107,7 +128,7 @@ export function statusWorktrees(cwd: string, target?: string): StatusResult {
       continue;
     }
 
-    if (manifestEntry.isMain) {
+    if (gitEntry?.isMain ?? manifestEntry.isMain) {
       continue;
     }
 
