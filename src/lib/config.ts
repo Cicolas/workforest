@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { runGit } from "./git.ts";
@@ -302,5 +310,34 @@ export function writeManifest(
   manifestPath: string,
   manifest: WorkforestManifest,
 ): void {
-  writeFileSync(manifestPath, serializeManifest(manifest), "utf8");
+  const document = serializeManifest(manifest);
+  const stagingDirectory = mkdtempSync(
+    join(dirname(manifestPath), ".workforest-manifest-"),
+  );
+  const stagingPath = join(stagingDirectory, "manifest");
+  let persistenceError: unknown;
+  try {
+    const mode = existsSync(manifestPath)
+      ? statSync(manifestPath).mode & 0o777
+      : undefined;
+    writeFileSync(stagingPath, document, { encoding: "utf8", mode });
+    renameSync(stagingPath, manifestPath);
+  } catch (error) {
+    persistenceError = error;
+  }
+
+  try {
+    rmSync(stagingDirectory, { recursive: true });
+  } catch (cleanupError) {
+    const detail =
+      persistenceError instanceof Error
+        ? persistenceError.message
+        : "Manifest replacement completed";
+    throw new Error(
+      `${detail}. Could not clean up manifest recovery artifacts at ${stagingDirectory}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+    );
+  }
+  if (persistenceError) {
+    throw persistenceError;
+  }
 }

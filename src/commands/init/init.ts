@@ -1,11 +1,9 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { writeManifest } from "../../lib/config.ts";
 import { discoverRepo } from "../../lib/git.ts";
-import {
-  serializeManifest,
-  type WorkforestManifest,
-} from "../../lib/manifest.ts";
+import type { WorkforestManifest } from "../../lib/manifest.ts";
 
 export interface InitResult {
   manifestPath: string;
@@ -59,7 +57,7 @@ export function initWorkforest(cwd: string, mainFolder?: string): InitResult {
   }
   const manifest = buildManifestFromRepo(repo);
 
-  writeFileSync(manifestPath, serializeManifest(manifest), "utf8");
+  writeManifest(manifestPath, manifest);
 
   return {
     manifestPath,
