@@ -53,19 +53,13 @@ export function formatWorktreeList(
 
           const worktree = worktrees[rowIndex - 1];
           if (index === 1) {
-            return worktree.branch === null
-              ? colors.muted(padded)
-              : colors.info(padded);
+            return worktree.branch === null ? colors.muted(padded) : padded;
           }
           if (index === 2) {
-            return worktree.exists
-              ? colors.success(padded)
-              : colors.warning(padded);
+            return worktree.exists ? padded : colors.warning(padded);
           }
           if (index === 3) {
-            return worktree.isMain
-              ? colors.heading(padded)
-              : colors.muted(padded);
+            return worktree.isMain ? colors.heading(padded) : padded;
           }
           return padded;
         })

@@ -17,17 +17,16 @@ function paint(
 }
 
 export function supportsColor(stream = process.stdout): boolean {
-  return paint("cyan", "color", stream) !== "color";
+  return paint("bold", "color", stream) !== "color";
 }
 
 export const colors = {
   heading: (text: string, stream = process.stdout) =>
-    paint(["bold", "cyan"], text, stream),
+    paint("bold", text, stream),
   success: (text: string, stream = process.stdout) =>
     paint("green", text, stream),
   warning: (text: string, stream = process.stdout) =>
     paint("yellow", text, stream),
-  info: (text: string, stream = process.stdout) => paint("cyan", text, stream),
   muted: (text: string, stream = process.stdout) => paint("dim", text, stream),
   error: (text: string, stream = process.stderr) => paint("red", text, stream),
 };

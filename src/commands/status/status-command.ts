@@ -16,7 +16,7 @@ function printStatus(result: StatusResult, json: boolean): void {
 
   const level =
     result.level === "ok"
-      ? colors.success(result.level)
+      ? result.level
       : result.level === "warning"
         ? colors.warning(result.level)
         : colors.error(result.level, process.stdout);

@@ -70,8 +70,10 @@ bun test
 
 ## Usage
 
-Human-readable output uses colored help, table headers, branches, states, roles,
-action labels, status findings, and errors when supported by the terminal.
+Human-readable output reserves green for completed actions, yellow for warnings
+and missing worktrees, and red for errors when supported by the terminal.
+Headings and main worktree labels are bold; detached labels and bullet markers
+are dim. Routine information stays plain.
 Set `NO_COLOR=1` to disable colors or
 `FORCE_COLOR=1` to request them when piping output (overriding `NO_COLOR`).
 `--json` output stays plain.
