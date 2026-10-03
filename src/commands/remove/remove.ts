@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { discoverRepo, runGit } from "../../lib/git.ts";
 import { resolveWorktreeTarget } from "../../lib/target.ts";
+import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface RemoveOptions {
   force?: boolean;
@@ -130,18 +131,13 @@ export function removeWorktree(
   }
 
   const refreshedRepo = discoverRepo(manifest.repo.root);
-  const currentByPath = new Map(
-    manifest.worktrees.map((entry) => [resolve(entry.path), entry]),
-  );
   writeManifest(manifestPath, {
     ...manifest,
     repo: { name: refreshedRepo.repoName, root: refreshedRepo.repoRoot },
-    worktrees: refreshedRepo.activeWorktrees.map((entry) => {
-      const ignoreShared = currentByPath.get(resolve(entry.path))?.ignoreShared;
-      return ignoreShared
-        ? { ...entry, ignoreShared: [...ignoreShared] }
-        : entry;
-    }),
+    worktrees: mergeWorktreeSettings(
+      manifest.worktrees,
+      refreshedRepo.activeWorktrees,
+    ),
   });
 
   if (branchDeletionError) {
