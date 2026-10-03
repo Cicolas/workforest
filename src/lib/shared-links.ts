@@ -75,14 +75,31 @@ function isGlobPattern(pathPattern: string): boolean {
 
 function getGlobBase(pathPattern: string): string {
   const wildcardIndex = pathPattern.indexOf("*");
-  if (wildcardIndex === -1) {
-    return pathPattern;
-  }
-
-  return pathPattern.slice(0, wildcardIndex).replace(/\/+$/, "");
+  const separatorIndex = pathPattern.lastIndexOf(sep, wildcardIndex);
+  return pathPattern.slice(0, separatorIndex + 1);
 }
 
-function collectRecursiveFiles(rootPath: string): string[] {
+function globMatcher(pattern: string): RegExp {
+  const parts = pattern.split(sep);
+  const expression = parts
+    .map((part, index) => {
+      if (part === "**") {
+        return index === parts.length - 1 ? ".*" : "(?:[^/]+/)*";
+      }
+      const segment = part
+        .split("*")
+        .map((literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[^/]*");
+      return segment + (index === parts.length - 1 ? "" : "/");
+    })
+    .join("");
+  return new RegExp(`^${expression}$`);
+}
+
+function collectRecursiveFiles(
+  rootPath: string,
+  remainingDepth: number,
+): string[] {
   const entries = readdirSync(rootPath, { withFileTypes: true });
   const files: string[] = [];
 
@@ -90,7 +107,9 @@ function collectRecursiveFiles(rootPath: string): string[] {
     const entryPath = resolve(rootPath, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...collectRecursiveFiles(entryPath));
+      if (remainingDepth > 1) {
+        files.push(...collectRecursiveFiles(entryPath, remainingDepth - 1));
+      }
       continue;
     }
 
@@ -113,6 +132,19 @@ export function expandSharedLinks(
       continue;
     }
 
+    if (
+      /[?\[\]{}]|[@+!*]\(/.test(sourceRelative) ||
+      (isGlobPattern(sourceRelative) &&
+        (sourceRelative.includes("\\") ||
+          sourceRelative
+            .split(sep)
+            .some((part) => part.includes("**") && part !== "**")))
+    ) {
+      throw new Error(
+        `Unsupported shared glob pattern: ${sourceRelative}. Use '*' within a path segment or '**' as a complete segment.`,
+      );
+    }
+
     const targetRelative = typeof entry === "string" ? entry : entry.target;
     const copy = typeof entry !== "string" && entry.copy === true;
 
@@ -132,11 +164,18 @@ export function expandSharedLinks(
       );
     }
 
-    const sourceBase = resolve(repoRoot, getGlobBase(sourceRelative));
+    const absolutePattern = resolve(repoRoot, sourceRelative);
+    const sourceBase = getGlobBase(absolutePattern);
+    const pattern = relative(sourceBase, absolutePattern);
+    const matcher = globMatcher(pattern);
+    const depth = pattern.split(sep).includes("**")
+      ? Infinity
+      : pattern.split(sep).length;
 
     try {
-      for (const sourcePath of collectRecursiveFiles(sourceBase)) {
+      for (const sourcePath of collectRecursiveFiles(sourceBase, depth)) {
         const nestedRelative = relative(sourceBase, sourcePath);
+        if (!matcher.test(nestedRelative)) continue;
         links.push({
           sourceRelative,
           copy,
