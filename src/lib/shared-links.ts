@@ -3,6 +3,8 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
+  renameSync,
   readdirSync,
   readlinkSync,
   realpathSync,
@@ -293,6 +295,62 @@ export function preflightSharedLinks(
   return links;
 }
 
+function replaceCopy(sourcePath: string, targetPath: string): void {
+  mkdirSync(dirname(targetPath), { recursive: true });
+  const staging = mkdtempSync(
+    resolve(dirname(targetPath), ".workforest-copy-"),
+  );
+  const replacement = resolve(staging, "replacement");
+  const previous = resolve(staging, "previous");
+  let backedUp = false;
+  let hasTarget = false;
+  try {
+    try {
+      lstatSync(targetPath);
+      hasTarget = true;
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      )
+        throw error;
+    }
+    cpSync(sourcePath, replacement, { recursive: true, dereference: true });
+    if (hasTarget) {
+      renameSync(targetPath, previous);
+      backedUp = true;
+    }
+    renameSync(replacement, targetPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (backedUp) {
+      try {
+        renameSync(previous, targetPath);
+      } catch (restoreError) {
+        throw new Error(
+          `Copy replacement failed for ${targetPath}: ${message}. Previous target retained at ${previous}; prepared replacement retained at ${replacement}. Restore the previous target to ${targetPath} after inspecting these paths. Restoration failed: ${restoreError}`,
+        );
+      }
+    }
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(
+        `Copy replacement failed for ${targetPath}: ${message}. ${hasTarget ? `Previous target preserved at ${targetPath}` : `No replacement installed at ${targetPath}`}; recovery artifacts retained at ${staging}. Inspect and remove those artifacts after recovery. Cleanup failed: ${cleanupError}`,
+      );
+    }
+    throw new Error(
+      `Copy replacement failed for ${targetPath}: ${message}. ${hasTarget ? "Previous target was preserved or restored" : "No replacement was installed"}; correct the source or filesystem problem and retry sync --refresh.`,
+    );
+  }
+  try {
+    rmSync(staging, { recursive: true, force: true });
+  } catch (error) {
+    throw new Error(
+      `Copy replaced at ${targetPath}, but recovery artifacts remain at ${staging}. Inspect and remove those artifacts before retrying: ${error}`,
+    );
+  }
+}
+
 export function applySharedLinks(
   repoRoot: string,
   worktreePath: string,
@@ -348,9 +406,7 @@ export function applySharedLinks(
           `Shared copy source and target must not overlap: ${sourcePath} -> ${targetPath}`,
         );
       }
-      rmSync(targetPath, { recursive: true, force: true });
-      mkdirSync(dirname(targetPath), { recursive: true });
-      cpSync(sourcePath, targetPath, { recursive: true, dereference: true });
+      replaceCopy(sourcePath, targetPath);
       created += 1;
       continue;
     }
