@@ -182,7 +182,7 @@ describe("CLI colors", () => {
   });
 
   for (const command of [undefined, "create", "sync"]) {
-    test(`colors ${command ?? "top-level"} help without changing its layout`, () => {
+    test(`emphasizes ${command ?? "top-level"} help headings without changing its layout`, () => {
       const cwd = fixture();
       const args = [cliPath, ...(command ? [command] : []), "--help"];
       const plain = run(cwd, args, { NO_COLOR: "1" });
@@ -190,8 +190,8 @@ describe("CLI colors", () => {
       expect(plain.exitCode).toBe(0);
       expect(colored.exitCode).toBe(0);
       const output = colored.stdout.toString();
-      expect(output).toContain("\u001b[36mUsage:");
-      expect(output).toContain("\u001b[2m");
+      expect(output).toContain("\u001b[1mUsage:");
+      expect(output).not.toMatch(/\u001b\[(?:2|3[1-6])m/);
       expect(stripVTControlCharacters(output)).toBe(plain.stdout.toString());
       expect(plain.stdout.toString()).not.toContain("\u001b[");
       expect(colored.stderr.toString()).toBe("");
@@ -208,13 +208,13 @@ describe("CLI colors", () => {
     ]);
     expect(result.exitCode).toBe(1);
     expect(result.stdout.toString()).toBe("");
-    expect(result.stderr.toString()).toContain("\u001b[36mUsage:");
+    expect(result.stderr.toString()).toContain("\u001b[1mUsage:");
     expect(stripVTControlCharacters(result.stderr.toString())).toContain(
       "Usage: wf create [options] <folder> <branch-name>",
     );
   });
 
-  test("colors worktree columns without changing table alignment or paths", () => {
+  test("highlights missing worktrees without changing table alignment or paths", () => {
     const cwd = fixture();
     const detached = join(cwd, "detached");
     mkdirSync(detached);
@@ -237,9 +237,11 @@ describe("CLI colors", () => {
     expect(plain.exitCode).toBe(0);
     expect(colored.exitCode).toBe(0);
     const output = colored.stdout.toString();
-    expect(output).toContain("\u001b[36mPATH");
-    expect(output).toContain("\u001b[36mfeature/missing");
-    expect(output).toContain("\u001b[32mpresent");
+    expect(output).toContain("\u001b[1mPATH");
+    expect(output).not.toContain("\u001b[36m");
+    expect(output).toContain("feature/missing");
+    expect(output).not.toContain("\u001b[32m");
+    expect(output).toContain("present");
     expect(output).toContain("\u001b[33mmissing");
     expect(output).toContain("\u001b[2mdetached");
     expect(output.split("\n")[1].startsWith(cwd)).toBe(true);

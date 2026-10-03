@@ -25,7 +25,7 @@ export function registerSyncCommand(program: Command): void {
           const branchLabel =
             worktree.branch === null
               ? colors.muted("detached")
-              : colors.info(worktree.branch);
+              : worktree.branch;
           const mainLabel = worktree.isMain ? ` ${colors.heading("main")}` : "";
           console.log(
             `${colors.muted("-")} ${worktree.path} [${branchLabel}]${mainLabel}`,
