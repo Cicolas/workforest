@@ -29,3 +29,20 @@ Use `bun:test` with `describe`, `test`, and `expect`; name files `*.test.ts` and
 ## Commit & Pull Request Guidelines
 
 History uses short imperative subjects, such as `Add shell installer` and `Use commander for CLI help`, without a consistent prefix scheme. Keep commits focused. PR descriptions should explain the problem, resulting behavior, and validation commands; link relevant issues and include CLI output examples when help or command behavior changes. Run tests and formatting checks before submitting.
+
+## Agent skills
+
+### Issue tracker
+
+Tickets and specs live in GitHub Issues. Before tracker operations,
+read `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default triage roles. Before triaging issues,
+read `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a single-context layout: root `GLOSSARY.md` and `docs/adr/`.
+Before exploring or designing, read `docs/agents/domain.md`.
