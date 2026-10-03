@@ -48,14 +48,34 @@ function parseYamlScalar(value: string): string | null {
   }
 
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1);
+    return trimmed.slice(1, -1).replace(/''/g, "'");
   }
 
   return trimmed;
 }
 
 function parseKeyValue(line: string): { key: string; value: string } {
-  const separatorIndex = line.indexOf(":");
+  let separatorIndex = -1;
+  let quote: string | undefined;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote !== undefined) {
+      if (quote === '"' && character === "\\") {
+        index += 1;
+      } else if (character === quote) {
+        if (quote === "'" && line[index + 1] === "'") {
+          index += 1;
+        } else {
+          quote = undefined;
+        }
+      }
+    } else if (index === 0 && (character === '"' || character === "'")) {
+      quote = character;
+    } else if (character === ":") {
+      separatorIndex = index;
+      break;
+    }
+  }
 
   if (separatorIndex === -1) {
     throw new Error(`Invalid config line: ${line}`);
