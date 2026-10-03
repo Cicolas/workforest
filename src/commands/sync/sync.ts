@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
@@ -8,6 +9,7 @@ import {
   preflightSharedLinks,
   expandSharedLinks,
 } from "../../lib/shared-links.ts";
+import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface SyncOptions {
   refresh?: boolean | string;
@@ -22,32 +24,7 @@ export interface SyncResult {
 }
 
 function pathSet(worktrees: WorktreeEntry[]): Set<string> {
-  return new Set(worktrees.map((entry) => entry.path));
-}
-
-function mergeWorktreeSettings(
-  currentWorktrees: WorktreeEntry[],
-  discoveredWorktrees: WorktreeEntry[],
-): WorktreeEntry[] {
-  const currentByPath = new Map(
-    currentWorktrees.map((entry) => [entry.path, entry]),
-  );
-
-  return discoveredWorktrees.map((entry) => {
-    const existingEntry = currentByPath.get(entry.path);
-
-    if (
-      !existingEntry?.ignoreShared ||
-      existingEntry.ignoreShared.length === 0
-    ) {
-      return entry;
-    }
-
-    return {
-      ...entry,
-      ignoreShared: [...existingEntry.ignoreShared],
-    };
-  });
+  return new Set(worktrees.map((entry) => resolve(entry.path)));
 }
 
 export function syncWorktrees(
@@ -111,10 +88,10 @@ export function syncWorktrees(
   const afterPaths = pathSet(mergedWorktrees);
   const createdWorktrees = mergedWorktrees
     .map((entry) => entry.path)
-    .filter((path) => !beforePaths.has(path));
+    .filter((path) => !beforePaths.has(resolve(path)));
   const removedWorktrees = manifest.worktrees
     .map((entry) => entry.path)
-    .filter((path) => !afterPaths.has(path));
+    .filter((path) => !afterPaths.has(resolve(path)));
 
   writeManifest(manifestPath, {
     ...manifest,

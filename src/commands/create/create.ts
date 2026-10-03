@@ -2,42 +2,17 @@ import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
-import type { WorktreeEntry } from "../../lib/manifest.ts";
 import {
   applySharedLinks,
   preflightSharedLinks,
 } from "../../lib/shared-links.ts";
+import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface CreateResult {
   worktreePath: string;
   branchName: string;
   sharedLinksCreated: number;
   manifestPath: string;
-}
-
-function mergeWorktreeSettings(
-  currentWorktrees: WorktreeEntry[],
-  discoveredWorktrees: WorktreeEntry[],
-): WorktreeEntry[] {
-  const currentByPath = new Map(
-    currentWorktrees.map((entry) => [resolve(entry.path), entry]),
-  );
-
-  return discoveredWorktrees.map((entry) => {
-    const existingEntry = currentByPath.get(resolve(entry.path));
-
-    if (
-      !existingEntry?.ignoreShared ||
-      existingEntry.ignoreShared.length === 0
-    ) {
-      return entry;
-    }
-
-    return {
-      ...entry,
-      ignoreShared: [...existingEntry.ignoreShared],
-    };
-  });
 }
 
 export function createWorktree(
