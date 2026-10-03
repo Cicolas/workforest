@@ -2,7 +2,10 @@ import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
-import { applySharedLinks } from "../../lib/shared-links.ts";
+import {
+  applySharedLinks,
+  preflightSharedLinks,
+} from "../../lib/shared-links.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface CreateResult {
@@ -25,6 +28,13 @@ export function createWorktree(
   }
 
   validateSharedRepo(manifest);
+  preflightSharedLinks(
+    manifest.repo.root,
+    worktreePath,
+    manifest.shared,
+    manifest.worktrees.find((entry) => resolve(entry.path) === worktreePath)
+      ?.ignoreShared,
+  );
 
   const addResult = runGit(manifest.repo.root, [
     "worktree",
