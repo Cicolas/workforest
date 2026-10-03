@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
+import { OperationProgress } from "../../lib/errors.ts";
 import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
 import {
   applySharedLinks,
@@ -36,43 +38,82 @@ export function createWorktree(
       ?.ignoreShared,
   );
 
-  const addResult = runGit(manifest.repo.root, [
-    "worktree",
-    "add",
-    "-b",
-    branchName,
-    worktreePath,
-  ]);
+  const progress = new OperationProgress();
+  const branchExisted = runGit(manifest.repo.root, [
+    "show-ref",
+    "--verify",
+    "--quiet",
+    `refs/heads/${branchName}`,
+  ]).success;
+  const pathExisted = existsSync(worktreePath);
+  try {
+    const addResult = runGit(manifest.repo.root, [
+      "worktree",
+      "add",
+      "-b",
+      branchName,
+      worktreePath,
+    ]);
 
-  if (!addResult.success) {
-    throw new Error(addResult.stderr || "Failed to create git worktree.");
+    if (!addResult.success) {
+      if (
+        !branchExisted &&
+        runGit(manifest.repo.root, [
+          "show-ref",
+          "--verify",
+          "--quiet",
+          `refs/heads/${branchName}`,
+        ]).success
+      ) {
+        progress.record(`Created branch ${branchName}`);
+      }
+      if (!pathExisted && existsSync(worktreePath)) {
+        progress.record(
+          `Created worktree directory ${worktreePath}; inspect its Git registration`,
+        );
+      }
+      throw new Error(addResult.stderr || "Failed to create git worktree.");
+    }
+
+    progress.record(`Created branch ${branchName}`);
+    progress.record(`Created worktree ${worktreePath}`);
+    const sharedLinksCreated = applySharedLinks(
+      manifest.repo.root,
+      worktreePath,
+      manifest.shared,
+      manifest.worktrees.find((entry) => resolve(entry.path) === worktreePath)
+        ?.ignoreShared,
+      false,
+      progress.record,
+    );
+    const refreshedRepo = discoverRepo(manifest.repo.root);
+
+    writeManifest(
+      manifestPath,
+      {
+        ...manifest,
+        repo: {
+          name: refreshedRepo.repoName,
+          root: refreshedRepo.repoRoot,
+        },
+        worktrees: mergeWorktreeSettings(
+          manifest.worktrees,
+          refreshedRepo.activeWorktrees,
+        ),
+      },
+      progress.recordManifest,
+    );
+    return {
+      worktreePath,
+      branchName,
+      sharedLinksCreated,
+      manifestPath,
+    };
+  } catch (error) {
+    throw progress.failure(
+      error,
+      manifestPath,
+      "Correct the reported problem and run wf sync to adopt the existing Git worktree and reconcile sharing and inventory. Do not repeat wf create for a branch or worktree that already exists. If only the branch exists, inspect git worktree list and use git worktree add with that existing branch to finish registration.",
+    );
   }
-
-  const sharedLinksCreated = applySharedLinks(
-    manifest.repo.root,
-    worktreePath,
-    manifest.shared,
-    manifest.worktrees.find((entry) => resolve(entry.path) === worktreePath)
-      ?.ignoreShared,
-  );
-  const refreshedRepo = discoverRepo(manifest.repo.root);
-
-  writeManifest(manifestPath, {
-    ...manifest,
-    repo: {
-      name: refreshedRepo.repoName,
-      root: refreshedRepo.repoRoot,
-    },
-    worktrees: mergeWorktreeSettings(
-      manifest.worktrees,
-      refreshedRepo.activeWorktrees,
-    ),
-  });
-
-  return {
-    worktreePath,
-    branchName,
-    sharedLinksCreated,
-    manifestPath,
-  };
 }

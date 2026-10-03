@@ -329,6 +329,7 @@ export function readManifest(cwd: string): {
 export function writeManifest(
   manifestPath: string,
   manifest: WorkforestManifest,
+  onProgress?: (action: string, manifestReplaced: boolean) => void,
 ): void {
   const document = serializeManifest(manifest);
   const stagingDirectory = mkdtempSync(
@@ -342,6 +343,7 @@ export function writeManifest(
       : undefined;
     writeFileSync(stagingPath, document, { encoding: "utf8", mode });
     renameSync(stagingPath, manifestPath);
+    onProgress?.(`Replaced manifest ${manifestPath}`, true);
   } catch (error) {
     persistenceError = error;
   }
@@ -349,6 +351,10 @@ export function writeManifest(
   try {
     rmSync(stagingDirectory, { recursive: true });
   } catch (cleanupError) {
+    onProgress?.(
+      `Retained manifest recovery artifacts ${stagingDirectory}`,
+      !persistenceError,
+    );
     const detail =
       persistenceError instanceof Error
         ? persistenceError.message

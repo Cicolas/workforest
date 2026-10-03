@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
+import { OperationProgress } from "../../lib/errors.ts";
 import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import {
@@ -54,59 +55,83 @@ export function syncWorktrees(
   }
   const beforePaths = pathSet(manifest.worktrees);
 
-  const pruneResult = runGit(manifest.repo.root, [
-    "worktree",
-    "prune",
-    "--expire",
-    "now",
-  ]);
-  if (!pruneResult.success) {
-    throw new Error(pruneResult.stderr || "Failed to prune git worktrees.");
-  }
-
-  const currentRepo = discoverRepo(manifest.repo.root);
-  const mergedWorktrees = mergeWorktreeSettings(
-    manifest.worktrees,
-    currentRepo.activeWorktrees,
-  );
-
-  let sharedLinksCreated = 0;
-  for (const worktree of mergedWorktrees) {
-    if (worktree.isMain || !existsSync(worktree.path)) {
-      continue;
+  const progress = new OperationProgress();
+  try {
+    const pruneResult = runGit(manifest.repo.root, [
+      "worktree",
+      "prune",
+      "--expire",
+      "now",
+    ]);
+    if (!pruneResult.success) {
+      progress.record(
+        `Git pruning did not finish in ${manifest.repo.root}; inspect registrations`,
+        false,
+      );
+      throw new Error(pruneResult.stderr || "Failed to prune git worktrees.");
     }
 
-    sharedLinksCreated += applySharedLinks(
-      manifest.repo.root,
-      worktree.path,
-      manifest.shared,
-      worktree.ignoreShared,
-      options.refresh,
+    const currentRepo = discoverRepo(manifest.repo.root);
+    const registeredPaths = pathSet(currentRepo.activeWorktrees);
+    for (const entry of beforeRepo.activeWorktrees) {
+      if (!registeredPaths.has(resolve(entry.path))) {
+        progress.record(`Pruned Git worktree registration ${entry.path}`);
+      }
+    }
+    const mergedWorktrees = mergeWorktreeSettings(
+      manifest.worktrees,
+      currentRepo.activeWorktrees,
+    );
+
+    let sharedLinksCreated = 0;
+    for (const worktree of mergedWorktrees) {
+      if (worktree.isMain || !existsSync(worktree.path)) {
+        continue;
+      }
+
+      sharedLinksCreated += applySharedLinks(
+        manifest.repo.root,
+        worktree.path,
+        manifest.shared,
+        worktree.ignoreShared,
+        options.refresh,
+        progress.record,
+      );
+    }
+
+    const afterPaths = pathSet(mergedWorktrees);
+    const createdWorktrees = mergedWorktrees
+      .map((entry) => entry.path)
+      .filter((path) => !beforePaths.has(resolve(path)));
+    const removedWorktrees = manifest.worktrees
+      .map((entry) => entry.path)
+      .filter((path) => !afterPaths.has(resolve(path)));
+
+    writeManifest(
+      manifestPath,
+      {
+        ...manifest,
+        repo: {
+          name: currentRepo.repoName,
+          root: currentRepo.repoRoot,
+        },
+        worktrees: mergedWorktrees,
+      },
+      progress.recordManifest,
+    );
+
+    return {
+      manifestPath,
+      createdWorktrees,
+      removedWorktrees,
+      worktrees: mergedWorktrees,
+      sharedLinksCreated,
+    };
+  } catch (error) {
+    throw progress.failure(
+      error,
+      manifestPath,
+      "Correct the reported problem, inspect any recovery artifacts, and run wf sync again to reconcile sharing and inventory. If you requested copy refresh, repeat wf sync --refresh with the same selection after recovery.",
     );
   }
-
-  const afterPaths = pathSet(mergedWorktrees);
-  const createdWorktrees = mergedWorktrees
-    .map((entry) => entry.path)
-    .filter((path) => !beforePaths.has(resolve(path)));
-  const removedWorktrees = manifest.worktrees
-    .map((entry) => entry.path)
-    .filter((path) => !afterPaths.has(resolve(path)));
-
-  writeManifest(manifestPath, {
-    ...manifest,
-    repo: {
-      name: currentRepo.repoName,
-      root: currentRepo.repoRoot,
-    },
-    worktrees: mergedWorktrees,
-  });
-
-  return {
-    manifestPath,
-    createdWorktrees,
-    removedWorktrees,
-    worktrees: mergedWorktrees,
-    sharedLinksCreated,
-  };
 }

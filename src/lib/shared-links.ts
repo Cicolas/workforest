@@ -22,15 +22,32 @@ export interface SharedLink {
   copy: boolean;
 }
 
+function removeSharedTarget(
+  targetPath: string,
+  onProgress?: (action: string, completed?: boolean) => void,
+): void {
+  try {
+    rmSync(targetPath, { recursive: true, force: true });
+    onProgress?.(`Removed previous shared target ${targetPath}`);
+  } catch (error) {
+    onProgress?.(
+      `Shared target removal did not finish at ${targetPath}; inspect remaining contents`,
+      false,
+    );
+    throw error;
+  }
+}
+
 function prepareSharedTarget(
   targetPath: string,
   expectedSourcePath: string,
+  onProgress?: (action: string, completed?: boolean) => void,
 ): boolean {
   try {
     const stat = lstatSync(targetPath);
 
     if (!stat.isSymbolicLink()) {
-      rmSync(targetPath, { recursive: true, force: true });
+      removeSharedTarget(targetPath, onProgress);
       return true;
     }
 
@@ -38,7 +55,7 @@ function prepareSharedTarget(
     const currentResolved = resolve(dirname(targetPath), currentLink);
 
     if (currentResolved !== expectedSourcePath) {
-      rmSync(targetPath, { recursive: true, force: true });
+      removeSharedTarget(targetPath, onProgress);
       return true;
     }
 
@@ -256,8 +273,28 @@ export function preflightSharedLinks(
   return links;
 }
 
-function replaceCopy(sourcePath: string, targetPath: string): void {
-  mkdirSync(dirname(targetPath), { recursive: true });
+function makeSharedParents(
+  targetPath: string,
+  onProgress?: (action: string, completed?: boolean) => void,
+): void {
+  try {
+    const created = mkdirSync(dirname(targetPath), { recursive: true });
+    if (created) onProgress?.(`Created sharing directory ${created}`);
+  } catch (error) {
+    onProgress?.(
+      `Sharing directory creation did not finish for ${targetPath}; inspect existing parents`,
+      false,
+    );
+    throw error;
+  }
+}
+
+function replaceCopy(
+  sourcePath: string,
+  targetPath: string,
+  onProgress?: (action: string, completed?: boolean) => void,
+): void {
+  makeSharedParents(targetPath, onProgress);
   const staging = mkdtempSync(
     resolve(dirname(targetPath), ".workforest-copy-"),
   );
@@ -281,12 +318,16 @@ function replaceCopy(sourcePath: string, targetPath: string): void {
       backedUp = true;
     }
     renameSync(replacement, targetPath);
+    onProgress?.(`Replaced shared copy ${targetPath}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (backedUp) {
       try {
         renameSync(previous, targetPath);
       } catch (restoreError) {
+        onProgress?.(
+          `Previous shared target retained at ${previous}; restore it to ${targetPath}`,
+        );
         throw new Error(
           `Copy replacement failed for ${targetPath}: ${message}. Previous target retained at ${previous}; prepared replacement retained at ${replacement}. Restore the previous target to ${targetPath} after inspecting these paths. Restoration failed: ${restoreError}`,
         );
@@ -295,6 +336,7 @@ function replaceCopy(sourcePath: string, targetPath: string): void {
     try {
       rmSync(staging, { recursive: true, force: true });
     } catch (cleanupError) {
+      onProgress?.(`Retained copy recovery artifacts ${staging}`);
       throw new Error(
         `Copy replacement failed for ${targetPath}: ${message}. ${hasTarget ? `Previous target preserved at ${targetPath}` : `No replacement installed at ${targetPath}`}; recovery artifacts retained at ${staging}. Inspect and remove those artifacts after recovery. Cleanup failed: ${cleanupError}`,
       );
@@ -318,6 +360,7 @@ export function applySharedLinks(
   shared: Record<string, SharedPath>,
   ignoredShared: string[] = [],
   refresh: boolean | string = false,
+  onProgress?: (action: string, completed?: boolean) => void,
 ): number {
   let created = 0;
 
@@ -367,17 +410,18 @@ export function applySharedLinks(
           `Shared copy source and target must not overlap: ${sourcePath} -> ${targetPath}`,
         );
       }
-      replaceCopy(sourcePath, targetPath);
+      replaceCopy(sourcePath, targetPath, onProgress);
       created += 1;
       continue;
     }
 
-    if (!prepareSharedTarget(targetPath, sourcePath)) {
+    if (!prepareSharedTarget(targetPath, sourcePath, onProgress)) {
       continue;
     }
 
-    mkdirSync(dirname(targetPath), { recursive: true });
+    makeSharedParents(targetPath, onProgress);
     symlinkSync(relative(dirname(targetPath), sourcePath), targetPath);
+    onProgress?.(`Created shared link ${targetPath}`);
     created += 1;
   }
 

@@ -163,6 +163,42 @@ worktree now uses the old branch. Use the intended worktree's path or run
 to delete. Safe branch deletion can fail after worktree removal: the branch
 is retained, the manifest is reconciled, and the command reports the failure.
 
+## Failure and recovery
+
+Commands are not a transaction across Git and the filesystem. Validation
+failures happen before the planned mutations. Runtime errors say
+`No changes completed` when no completed mutation was observed, or
+`Partial completion` and list completed actions and relevant paths. A failed
+Git removal or recursive filesystem operation can change contents before
+returning an error; `Completion uncertain` identifies that incomplete action
+and asks you to inspect its remaining contents or registration. The
+manifest may still disagree with Git or sharing on disk; the diagnostic states
+whether manifest replacement completed. Source data and copy recovery
+protections still apply, but completed sharing updates are not rolled back as
+a group.
+
+- **Create:** correct the reported source or filesystem problem, then run
+  `wf sync` to adopt the existing registered worktree and reconcile its sharing
+  and manifest entry. Do not repeat `wf create` for a branch/worktree already
+  created. If Git left only a branch, inspect `git worktree list` and use
+  `git worktree add <path> <existing-branch>` to complete registration.
+- **Sync:** inspect completed target updates and any retained recovery paths.
+  Restore a retained previous copy if the diagnostic requests it, fix the
+  reported problem, and run `wf sync` again. Ordinary sync preserves existing
+  copies; repeat the same `wf sync --refresh [source-or-target]` selection when
+  retrying an intended copy refresh.
+- **Remove:** an already removed worktree remains removed. If persistence
+  fails, restore manifest-directory access and run `wf sync` to reconcile the
+  inventory. If safe branch deletion also fails, its diagnostic is retained;
+  inspect and merge the surviving branch's history before deleting it safely
+  as a separate step. No command force-deletes that branch as rollback.
+
+Copy or manifest replacement can complete before recovery-artifact cleanup
+fails. The error identifies that completed replacement and retained artifact
+location; inspect those artifacts before removing them or retrying. Manifest
+replacement alone is atomic; it does not coordinate concurrent writers or
+undo preceding Git/filesystem mutations.
+
 ## Manifest
 
 The parser supports the manifest structure shown below, rather than the full
