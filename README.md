@@ -200,6 +200,22 @@ Behavior:
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
 
+Shared globs match files, including hidden entries. `*` matches within one path
+segment: `assets/*.txt` selects text files directly inside `assets`, without
+recursing or selecting JSON files. A complete `**` segment matches zero or more
+segments: `assets/**/*.txt` also selects nested text files. Targets must end in
+`/`; paths below the directory preceding the first wildcard retain their
+hierarchy. Literal prefixes within wildcard segments work too, such as
+`assets/report-*.txt`. Missing source directories produce no shared targets.
+Create, sync, and status use the same matching rules. Exclusions match the exact
+source key, and selective copy refresh accepts an individual source or target
+path within the selected files.
+
+Question-mark wildcards, character classes, brace expansion, extglobs, escaped
+wildcards, and embedded double stars such as `file**.txt` are unsupported and
+produce an explicit configuration error. Workforest does not expand these forms
+into a directory selection.
+
 Sharing destinations must be strictly inside their destination worktree. Targets
 cannot be the worktree root, contain a `.git` component, alias Git metadata,
 overlap any shared source, or overlap another planned target. Existing ancestor
