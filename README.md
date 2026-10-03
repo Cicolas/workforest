@@ -200,6 +200,17 @@ Behavior:
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
 
+Copy refresh prepares a complete replacement beside the destination before
+moving its old contents. If preparation fails, the old copy remains untouched.
+If installation fails after the old target was moved aside, Workforest restores
+that target, including a destination symlink without changing its referent.
+If restoration or cleanup fails, the error identifies the retained recovery
+paths and what to inspect or restore. A cleanup error can occur after the new
+copy was installed; the diagnostic states that the target was replaced. After
+correcting a source or filesystem problem, retry `wf sync --refresh` (or select
+one source or target). This preservation applies to each copy independently;
+earlier completed entries and Git operations are not rolled back as a group.
+
 Sharing destinations must be strictly inside their destination worktree. Targets
 cannot be the worktree root, contain a `.git` component, alias Git metadata,
 overlap any shared source, or overlap another planned target. Existing ancestor
