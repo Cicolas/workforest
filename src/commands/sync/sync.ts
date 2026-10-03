@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
-import { discoverRepo, runGit } from "../../lib/git.ts";
+import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import { applySharedLinks } from "../../lib/shared-links.ts";
 
@@ -51,6 +51,7 @@ export function syncWorktrees(
   options: SyncOptions = {},
 ): SyncResult {
   const { manifestPath, manifest } = readManifest(cwd);
+  validateSharedRepo(manifest);
   const beforePaths = pathSet(manifest.worktrees);
 
   const pruneResult = runGit(manifest.repo.root, [

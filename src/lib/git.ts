@@ -1,6 +1,7 @@
-import { resolve, basename, dirname } from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve, basename, dirname, join } from "node:path";
 
-import type { WorktreeEntry } from "./manifest.ts";
+import type { WorkforestManifest, WorktreeEntry } from "./manifest.ts";
 
 export interface RepoDiscovery {
   isGitRepo: boolean;
@@ -57,7 +58,7 @@ function parseRepoName(remoteUrl: string, repoRoot: string): string {
   return normalized.slice(separatorIndex + 1);
 }
 
-function parseMainWorktreeRoot(cwd: string): string | null {
+function parseMainWorktreeRoot(cwd: string): string {
   const commonDirResult = runGit(cwd, [
     "rev-parse",
     "--path-format=absolute",
@@ -65,10 +66,19 @@ function parseMainWorktreeRoot(cwd: string): string | null {
   ]);
 
   if (!commonDirResult.success || !commonDirResult.stdout) {
-    return null;
+    throw new Error(
+      "Unable to identify the main worktree: missing Git common directory.",
+    );
   }
 
-  return dirname(commonDirResult.stdout);
+  const commonDir = realpathSync(commonDirResult.stdout);
+  const mainRoot = dirname(commonDir);
+  if (basename(commonDir) !== ".git") {
+    throw new Error(
+      "Unsupported repository layout: expected the main worktree Git directory at .git.",
+    );
+  }
+  return mainRoot;
 }
 
 function parseBranchName(
@@ -118,9 +128,7 @@ export function parseWorktreeList(
       path: resolvedPath,
       branch: parseBranchName(rawBranch, detached),
       isMain:
-        mainWorktreeRoot === null
-          ? worktrees.length === 0
-          : resolvedPath === resolve(mainWorktreeRoot),
+        mainWorktreeRoot !== null && resolvedPath === resolve(mainWorktreeRoot),
     });
   }
 
@@ -138,7 +146,8 @@ export function discoverRepo(gitCwd: string): RepoDiscovery {
     throw new Error(`Not a git repository: ${resolvedGitCwd}`);
   }
 
-  const repoRoot = resolve(repoRootResult.stdout);
+  const currentRoot = realpathSync(repoRootResult.stdout);
+  const repoRoot = parseMainWorktreeRoot(resolvedGitCwd);
   const remoteUrlResult = runGit(resolvedGitCwd, [
     "config",
     "--get",
@@ -156,6 +165,31 @@ export function discoverRepo(gitCwd: string): RepoDiscovery {
     );
   }
 
+  const activeWorktrees = parseWorktreeList(
+    worktreeListResult.stdout,
+    repoRoot,
+  );
+  const mainEntries = activeWorktrees.filter((entry) => entry.isMain);
+  const mainRootResult = runGit(repoRoot, ["rev-parse", "--show-toplevel"]);
+  const mainCommonDirResult = runGit(repoRoot, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+  if (
+    mainEntries.length !== 1 ||
+    activeWorktrees[0]?.path !== repoRoot ||
+    !activeWorktrees.some((entry) => entry.path === currentRoot) ||
+    !mainRootResult.success ||
+    realpathSync(mainRootResult.stdout) !== repoRoot ||
+    !mainCommonDirResult.success ||
+    realpathSync(mainCommonDirResult.stdout) !== join(repoRoot, ".git")
+  ) {
+    throw new Error(
+      "Unsupported or inconsistent repository layout: cannot verify the main worktree.",
+    );
+  }
+
   return {
     isGitRepo: true,
     repoName: parseRepoName(
@@ -163,9 +197,23 @@ export function discoverRepo(gitCwd: string): RepoDiscovery {
       repoRoot,
     ),
     repoRoot,
-    activeWorktrees: parseWorktreeList(
-      worktreeListResult.stdout,
-      parseMainWorktreeRoot(resolvedGitCwd),
-    ),
+    activeWorktrees,
   };
+}
+
+export function validateSharedRepo(
+  manifest: WorkforestManifest,
+): RepoDiscovery {
+  const repo = discoverRepo(manifest.repo.root);
+  const mainEntries = manifest.worktrees.filter((entry) => entry.isMain);
+  if (
+    realpathSync(manifest.repo.root) !== repo.repoRoot ||
+    mainEntries.length !== 1 ||
+    resolve(mainEntries[0].path) !== repo.repoRoot
+  ) {
+    throw new Error(
+      "Inconsistent manifest: repo.root and the main worktree marker must identify the actual main worktree. Reinitialize the manifest with the correct source root before sharing.",
+    );
+  }
+  return repo;
 }

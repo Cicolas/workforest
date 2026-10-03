@@ -699,3 +699,158 @@ describe("syncWorktrees", () => {
     expect(syncedEntry?.ignoreShared).toEqual([".env"]);
   });
 });
+
+describe("main worktree identity through the CLI", () => {
+  const cliPath = resolve(import.meta.dir, "../src/cli.ts");
+
+  function cli(cwd: string, ...args: string[]) {
+    return Bun.spawnSync({
+      cmd: [process.execPath, cliPath, ...args],
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  }
+
+  function fixture() {
+    const cwd = makeTempDir("workforest-main-identity-");
+    const main = join(cwd, "main");
+    const linked = join(cwd, "linked");
+    mkdirSync(main);
+    run(["git", "init", "-b", "main"], main);
+    run(["git", "config", "user.name", "Workforest Test"], main);
+    run(["git", "config", "user.email", "workforest@example.com"], main);
+    writeFileSync(join(main, "README.md"), "hello");
+    run(["git", "add", "README.md"], main);
+    run(["git", "commit", "-m", "init"], main);
+    run(["git", "worktree", "add", "-b", "linked", linked], main);
+    return { cwd, main, linked };
+  }
+
+  test("initializes from either worktree and shares only from the actual main root", () => {
+    const { cwd, main, linked } = fixture();
+    const created = join(cwd, "created");
+    writeFileSync(join(main, ".env"), "main source");
+    writeFileSync(join(linked, ".env"), "linked contents");
+    expect(cli(main, "init").exitCode).toBe(0);
+    expect(cli(linked, "init").exitCode).toBe(0);
+    const mainManifest = readManifest(main).manifest;
+    const linkedManifest = readManifest(linked).manifest;
+    expect(linkedManifest).toEqual(mainManifest);
+    expect(linkedManifest.repo.root).toBe(main);
+    expect(linkedManifest.worktrees).toEqual([
+      { path: main, branch: "main", isMain: true },
+      { path: linked, branch: "linked", isMain: false },
+    ]);
+    expect(cli(linked, "create", "../created", "created").exitCode).toBe(0);
+    expect(readFileSync(join(created, ".env"), "utf8")).toBe("main source");
+    expect(cli(linked, "sync").exitCode).toBe(0);
+    expect(cli(linked, "sync").exitCode).toBe(0);
+    for (const destination of [linked, created]) {
+      const target = join(destination, ".env");
+      expect(lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(resolve(dirname(target), readlinkSync(target))).toBe(
+        join(main, ".env"),
+      );
+      expect(readFileSync(target, "utf8")).toBe("main source");
+    }
+    expect(lstatSync(join(main, ".env")).isFile()).toBe(true);
+    expect(readFileSync(join(main, ".env"), "utf8")).toBe("main source");
+    expect(readManifest(linked).manifest.repo.root).toBe(main);
+    const before = readFileSync(join(linked, "workforest.yaml"), "utf8");
+    expect(cli(linked, "init").exitCode).toBe(1);
+    expect(readFileSync(join(linked, "workforest.yaml"), "utf8")).toBe(before);
+  });
+
+  test("rejects a linked source root before creating or pruning worktrees", () => {
+    const { cwd, main, linked } = fixture();
+    writeFileSync(join(main, ".env"), "main source");
+    writeFileSync(join(linked, ".env"), "linked source");
+    expect(cli(linked, "init").exitCode).toBe(0);
+    const loaded = readManifest(linked);
+    writeManifest(loaded.manifestPath, {
+      ...loaded.manifest,
+      repo: { ...loaded.manifest.repo, root: linked },
+    });
+    const stale = join(cwd, "stale");
+    run(["git", "worktree", "add", "-b", "stale", stale], main);
+    rmSync(stale, { recursive: true });
+    const beforeGit = run(["git", "worktree", "list", "--porcelain"], main);
+    const beforeManifest = readFileSync(loaded.manifestPath, "utf8");
+    const beforeBranches = run(["git", "branch", "--list"], main);
+    for (const args of [["create", "../refused", "refused"], ["sync"]]) {
+      const result = cli(linked, ...args);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain("main worktree");
+      expect(run(["git", "worktree", "list", "--porcelain"], main)).toBe(
+        beforeGit,
+      );
+      expect(run(["git", "branch", "--list"], main)).toBe(beforeBranches);
+      expect(readFileSync(loaded.manifestPath, "utf8")).toBe(beforeManifest);
+      expect(readFileSync(join(main, ".env"), "utf8")).toBe("main source");
+      expect(readFileSync(join(linked, ".env"), "utf8")).toBe("linked source");
+    }
+    expect(existsSync(join(cwd, "refused"))).toBe(false);
+  });
+
+  test("rejects incorrect main-role markers before sharing", () => {
+    const { main, linked } = fixture();
+    writeFileSync(join(main, ".env"), "main source");
+    writeFileSync(join(linked, ".env"), "independent contents");
+    expect(cli(linked, "init", ".").exitCode).toBe(0);
+    const loaded = readManifest(linked);
+    for (const markers of [[], [linked], [main, linked]]) {
+      writeManifest(loaded.manifestPath, {
+        ...loaded.manifest,
+        worktrees: loaded.manifest.worktrees.map((entry) => ({
+          ...entry,
+          isMain: markers.includes(entry.path),
+        })),
+      });
+      const before = readFileSync(loaded.manifestPath, "utf8");
+      for (const args of [["sync"], ["create", "../refused", "refused"]]) {
+        expect(cli(linked, ...args).exitCode).toBe(1);
+        expect(readFileSync(loaded.manifestPath, "utf8")).toBe(before);
+        expect(readFileSync(join(main, ".env"), "utf8")).toBe("main source");
+        expect(readFileSync(join(linked, ".env"), "utf8")).toBe(
+          "independent contents",
+        );
+      }
+    }
+  });
+
+  test("rejects separate Git directories and bare-backed linked worktrees without writing a manifest", () => {
+    const cwd = makeTempDir("workforest-unsupported-");
+    const separate = join(cwd, "separate");
+    const gitDir = join(cwd, "metadata");
+    mkdirSync(separate);
+    run(["git", "init", "--separate-git-dir", gitDir, "-b", "main"], separate);
+    const separateResult = cli(separate, "init");
+    expect(separateResult.exitCode).toBe(1);
+    expect(separateResult.stderr.toString()).toContain(
+      "Unsupported repository layout",
+    );
+    expect(existsSync(join(separate, "workforest.yaml"))).toBe(false);
+
+    const { main } = fixture();
+    const bare = join(cwd, "bare.git");
+    const linked = join(cwd, "linked");
+    run(["git", "clone", "--bare", main, bare], cwd);
+    run(["git", "worktree", "add", "-b", "bare-linked", linked], bare);
+    const bareResult = cli(linked, "init");
+    expect(bareResult.exitCode).toBe(1);
+    expect(bareResult.stderr.toString()).toContain(
+      "Unsupported repository layout",
+    );
+    expect(existsSync(join(linked, "workforest.yaml"))).toBe(false);
+  });
+
+  test("rejects a linked worktree whose main worktree is unavailable", () => {
+    const { main, linked } = fixture();
+    run(["git", "config", "core.bare", "true"], main);
+    const result = cli(linked, "init");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("repository layout");
+    expect(existsSync(join(linked, "workforest.yaml"))).toBe(false);
+  });
+});
