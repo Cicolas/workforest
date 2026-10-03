@@ -186,6 +186,23 @@ Behavior:
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
 
+Sharing destinations must be strictly inside their destination worktree. Targets
+cannot be the worktree root, contain a `.git` component, alias Git metadata,
+overlap any shared source, or overlap another planned target. Existing ancestor
+symlinks are resolved during validation, so a directory link cannot redirect a
+write outside the worktree or onto source data. A target symlink itself can be
+replaced safely: its referent is preserved. External shared sources remain
+supported when these destination and source-preservation rules hold.
+
+Create validates the configuration before creating a branch or worktree. Sync
+validates every available destination before pruning or changing shared files.
+Sharing rechecks the complete plan against the filesystem immediately before
+application, including ancestors materialized by a new checkout. A checkout
+that introduces an unsafe ancestor can therefore fail after Git creation; it
+is retained for inspection and recovery. These checks do not coordinate with
+concurrent filesystem changes and do not make Git and filesystem operations a
+transaction.
+
 ## Development
 
 `src/cli.ts` assembles the CLI. Each command lives in `src/commands/<name>/`,
