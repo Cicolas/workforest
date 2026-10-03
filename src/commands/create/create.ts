@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
-import { discoverRepo, runGit } from "../../lib/git.ts";
+import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import { applySharedLinks } from "../../lib/shared-links.ts";
 
@@ -49,9 +49,7 @@ export function createWorktree(
     throw new Error("Branch name is required.");
   }
 
-  if (!manifest.worktrees.some((entry) => entry.isMain)) {
-    throw new Error("Workforest manifest does not contain a main worktree.");
-  }
+  validateSharedRepo(manifest);
 
   const addResult = runGit(manifest.repo.root, [
     "worktree",

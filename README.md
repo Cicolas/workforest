@@ -82,6 +82,29 @@ Initialize a manifest:
 wf init [main-folder]
 ```
 
+The **main worktree** is Git's original checkout, whose `.git` directory holds
+repository metadata. It is independent of the branch name: checking out a
+branch named `main` in a linked worktree does not make that worktree the main
+worktree. The manifest's `repo.root` is this main worktree and is the source
+root for all `shared` entries. Exactly its worktree entry has `isMain: true`.
+
+You can run `wf init` inside either the main or a linked worktree, or pass either
+worktree's folder to `wf init [main-folder]`. Both record the same actual main
+root. The manifest is written in the directory where you run the command;
+initialization refuses to overwrite an existing `workforest.yaml`. Commands
+continue to find manifests in the current directory or the existing repository
+ancestor locations; initialization in a linked worktree does not create a
+central manifest for sibling worktrees.
+
+Workforest supports repositories with an available main checkout and its Git
+common directory at `<main-worktree>/.git`. Bare repositories, separate Git
+directories, and inconsistent main-worktree registrations are rejected.
+Before create or sync changes anything, it verifies that `repo.root` and the
+manifest's main marker identify the actual main worktree. If an older manifest
+records a linked source root, correct `repo.root` and its `isMain` markers to
+match Git, or back up the manifest and reinitialize it, retaining your sharing
+entries and exclusions. Sync leaves the main source worktree untouched.
+
 Create a worktree:
 
 ```bash
