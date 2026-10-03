@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { runGit } from "./git.ts";
@@ -40,14 +48,34 @@ function parseYamlScalar(value: string): string | null {
   }
 
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1);
+    return trimmed.slice(1, -1).replace(/''/g, "'");
   }
 
   return trimmed;
 }
 
 function parseKeyValue(line: string): { key: string; value: string } {
-  const separatorIndex = line.indexOf(":");
+  let separatorIndex = -1;
+  let quote: string | undefined;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote !== undefined) {
+      if (quote === '"' && character === "\\") {
+        index += 1;
+      } else if (character === quote) {
+        if (quote === "'" && line[index + 1] === "'") {
+          index += 1;
+        } else {
+          quote = undefined;
+        }
+      }
+    } else if (index === 0 && (character === '"' || character === "'")) {
+      quote = character;
+    } else if (character === ":") {
+      separatorIndex = index;
+      break;
+    }
+  }
 
   if (separatorIndex === -1) {
     throw new Error(`Invalid config line: ${line}`);
@@ -302,5 +330,34 @@ export function writeManifest(
   manifestPath: string,
   manifest: WorkforestManifest,
 ): void {
-  writeFileSync(manifestPath, serializeManifest(manifest), "utf8");
+  const document = serializeManifest(manifest);
+  const stagingDirectory = mkdtempSync(
+    join(dirname(manifestPath), ".workforest-manifest-"),
+  );
+  const stagingPath = join(stagingDirectory, "manifest");
+  let persistenceError: unknown;
+  try {
+    const mode = existsSync(manifestPath)
+      ? statSync(manifestPath).mode & 0o777
+      : undefined;
+    writeFileSync(stagingPath, document, { encoding: "utf8", mode });
+    renameSync(stagingPath, manifestPath);
+  } catch (error) {
+    persistenceError = error;
+  }
+
+  try {
+    rmSync(stagingDirectory, { recursive: true });
+  } catch (cleanupError) {
+    const detail =
+      persistenceError instanceof Error
+        ? persistenceError.message
+        : "Manifest replacement completed";
+    throw new Error(
+      `${detail}. Could not clean up manifest recovery artifacts at ${stagingDirectory}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+    );
+  }
+  if (persistenceError) {
+    throw persistenceError;
+  }
 }
