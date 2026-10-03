@@ -1,9 +1,16 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
-import { discoverRepo, runGit, validateSharedRepo } from "../../lib/git.ts";
+import { OperationProgress } from "../../lib/errors.ts";
+import { pruneWorktrees, validateSharedRepo } from "../../lib/git.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
-import { applySharedLinks } from "../../lib/shared-links.ts";
+import {
+  applySharedLinks,
+  preflightSharedLinks,
+  expandSharedLinks,
+} from "../../lib/shared-links.ts";
+import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface SyncOptions {
   refresh?: boolean | string;
@@ -18,32 +25,7 @@ export interface SyncResult {
 }
 
 function pathSet(worktrees: WorktreeEntry[]): Set<string> {
-  return new Set(worktrees.map((entry) => entry.path));
-}
-
-function mergeWorktreeSettings(
-  currentWorktrees: WorktreeEntry[],
-  discoveredWorktrees: WorktreeEntry[],
-): WorktreeEntry[] {
-  const currentByPath = new Map(
-    currentWorktrees.map((entry) => [entry.path, entry]),
-  );
-
-  return discoveredWorktrees.map((entry) => {
-    const existingEntry = currentByPath.get(entry.path);
-
-    if (
-      !existingEntry?.ignoreShared ||
-      existingEntry.ignoreShared.length === 0
-    ) {
-      return entry;
-    }
-
-    return {
-      ...entry,
-      ignoreShared: [...existingEntry.ignoreShared],
-    };
-  });
+  return new Set(worktrees.map((entry) => resolve(entry.path)));
 }
 
 export function syncWorktrees(
@@ -51,62 +33,89 @@ export function syncWorktrees(
   options: SyncOptions = {},
 ): SyncResult {
   const { manifestPath, manifest } = readManifest(cwd);
-  validateSharedRepo(manifest);
+  const beforeRepo = validateSharedRepo(manifest);
+  expandSharedLinks(
+    manifest.repo.root,
+    manifest.repo.root,
+    manifest.shared,
+    new Set(),
+  );
+  for (const worktree of mergeWorktreeSettings(
+    manifest.worktrees,
+    beforeRepo.activeWorktrees,
+  )) {
+    if (!worktree.isMain && existsSync(worktree.path)) {
+      preflightSharedLinks(
+        manifest.repo.root,
+        worktree.path,
+        manifest.shared,
+        worktree.ignoreShared,
+      );
+    }
+  }
   const beforePaths = pathSet(manifest.worktrees);
 
-  const pruneResult = runGit(manifest.repo.root, [
-    "worktree",
-    "prune",
-    "--expire",
-    "now",
-  ]);
-  if (!pruneResult.success) {
-    throw new Error(pruneResult.stderr || "Failed to prune git worktrees.");
-  }
+  const progress = new OperationProgress();
+  try {
+    const currentRepo = pruneWorktrees(
+      manifest.repo.root,
+      progress.record,
+      beforeRepo,
+    );
+    const mergedWorktrees = mergeWorktreeSettings(
+      manifest.worktrees,
+      currentRepo.activeWorktrees,
+    );
 
-  const currentRepo = discoverRepo(manifest.repo.root);
-  const mergedWorktrees = mergeWorktreeSettings(
-    manifest.worktrees,
-    currentRepo.activeWorktrees,
-  );
+    let sharedLinksCreated = 0;
+    for (const worktree of mergedWorktrees) {
+      if (worktree.isMain || !existsSync(worktree.path)) {
+        continue;
+      }
 
-  let sharedLinksCreated = 0;
-  for (const worktree of mergedWorktrees) {
-    if (worktree.isMain || !existsSync(worktree.path)) {
-      continue;
+      sharedLinksCreated += applySharedLinks(
+        manifest.repo.root,
+        worktree.path,
+        manifest.shared,
+        worktree.ignoreShared,
+        options.refresh,
+        progress.record,
+      );
     }
 
-    sharedLinksCreated += applySharedLinks(
-      manifest.repo.root,
-      worktree.path,
-      manifest.shared,
-      worktree.ignoreShared,
-      options.refresh,
+    const afterPaths = pathSet(mergedWorktrees);
+    const createdWorktrees = mergedWorktrees
+      .map((entry) => entry.path)
+      .filter((path) => !beforePaths.has(resolve(path)));
+    const removedWorktrees = manifest.worktrees
+      .map((entry) => entry.path)
+      .filter((path) => !afterPaths.has(resolve(path)));
+
+    writeManifest(
+      manifestPath,
+      {
+        ...manifest,
+        repo: {
+          name: currentRepo.repoName,
+          root: currentRepo.repoRoot,
+        },
+        worktrees: mergedWorktrees,
+      },
+      progress.recordManifest,
+    );
+
+    return {
+      manifestPath,
+      createdWorktrees,
+      removedWorktrees,
+      worktrees: mergedWorktrees,
+      sharedLinksCreated,
+    };
+  } catch (error) {
+    throw progress.failure(
+      error,
+      manifestPath,
+      "Correct the reported problem, inspect any recovery artifacts, and run wf sync again to reconcile sharing and inventory. If you requested copy refresh, repeat wf sync --refresh with the same selection after recovery.",
     );
   }
-
-  const afterPaths = pathSet(mergedWorktrees);
-  const createdWorktrees = mergedWorktrees
-    .map((entry) => entry.path)
-    .filter((path) => !beforePaths.has(path));
-  const removedWorktrees = manifest.worktrees
-    .map((entry) => entry.path)
-    .filter((path) => !afterPaths.has(path));
-
-  writeManifest(manifestPath, {
-    ...manifest,
-    repo: {
-      name: currentRepo.repoName,
-      root: currentRepo.repoRoot,
-    },
-    worktrees: mergedWorktrees,
-  });
-
-  return {
-    manifestPath,
-    createdWorktrees,
-    removedWorktrees,
-    worktrees: mergedWorktrees,
-    sharedLinksCreated,
-  };
 }

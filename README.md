@@ -134,7 +134,12 @@ wf status ./feature-a --json
 
 Status exits with `0` when healthy, `1` when drift is found, and `2` when the
 check cannot run. It does not repair links or refresh the manifest; use `wf sync`
-to repair supported drift.
+to repair supported drift. Inventory drift uses stable finding codes:
+`worktree_branch_mismatch` for a changed branch, `worktree_detached_mismatch`
+when the manifest and Git disagree about detachment, and
+`worktree_main_mismatch` when the cached main role differs from Git. Status
+checks the live main role when deciding which worktree is the shared source;
+its JSON remains `{ "level": "...", "findings": [...] }`.
 
 Remove a non-main worktree by branch name or path:
 
@@ -149,7 +154,58 @@ their local changes. Branches are kept by default. `--delete-branch` uses Git's
 safe deletion check and keeps unmerged branches. An already-missing directory
 is pruned from Git and the manifest. The main worktree cannot be removed.
 
+Removal reads current Git registrations before pruning or deleting anything.
+If a cached branch target points to a worktree that has switched branches or
+detached, the command refuses that obsolete association, even if another
+worktree now uses the old branch. Use the intended worktree's path or run
+`wf sync` to refresh the inventory before selecting a branch. Path-based
+`--delete-branch` acts on the current branch; detached worktrees have no branch
+to delete. Safe branch deletion can fail after worktree removal: the branch
+is retained, the manifest is reconciled, and the command reports the failure.
+
+## Failure and recovery
+
+Commands are not a transaction across Git and the filesystem. Validation
+failures happen before the planned mutations. Runtime errors say
+`No changes completed` when no completed mutation was observed, or
+`Partial completion` and list completed actions and relevant paths. A failed
+Git removal or recursive filesystem operation can change contents before
+returning an error; `Completion uncertain` identifies that incomplete action
+and asks you to inspect its remaining contents or registration. The
+manifest may still disagree with Git or sharing on disk; the diagnostic states
+whether manifest replacement completed. Source data and copy recovery
+protections still apply, but completed sharing updates are not rolled back as
+a group.
+
+- **Create:** correct the reported source or filesystem problem, then run
+  `wf sync` to adopt the existing registered worktree and reconcile its sharing
+  and manifest entry. Do not repeat `wf create` for a branch/worktree already
+  created. If Git left only a branch, inspect `git worktree list` and use
+  `git worktree add <path> <existing-branch>` to complete registration.
+- **Sync:** inspect completed target updates and any retained recovery paths.
+  Restore a retained previous copy if the diagnostic requests it, fix the
+  reported problem, and run `wf sync` again. Ordinary sync preserves existing
+  copies; repeat the same `wf sync --refresh [source-or-target]` selection when
+  retrying an intended copy refresh.
+- **Remove:** an already removed worktree remains removed. If persistence
+  fails, restore manifest-directory access and run `wf sync` to reconcile the
+  inventory. If safe branch deletion also fails, its diagnostic is retained;
+  inspect and merge the surviving branch's history before deleting it safely
+  as a separate step. No command force-deletes that branch as rollback.
+
+Copy or manifest replacement can complete before recovery-artifact cleanup
+fails. The error identifies that completed replacement and retained artifact
+location; inspect those artifacts before removing them or retrying. Manifest
+replacement alone is atomic; it does not coordinate concurrent writers or
+undo preceding Git/filesystem mutations.
+
 ## Manifest
+
+The parser supports the manifest structure shown below, rather than the full
+YAML language. Quote source names containing colons or spaces. Double-quoted
+keys and values use JSON string escapes; single-quoted strings escape an
+apostrophe by doubling it (`'owner''s:settings'`). Rewrites preserve these
+names, sharing options, and exclusions, using double quotes where needed.
 
 Example `workforest.yaml`:
 
@@ -185,6 +241,50 @@ Behavior:
 - `wf status` checks that copies exist and match the source's file or directory type; it does not compare their contents
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
+
+Shared globs match files, including hidden entries. `*` matches within one path
+segment: `assets/*.txt` selects text files directly inside `assets`, without
+recursing or selecting JSON files. A complete `**` segment matches zero or more
+segments: `assets/**/*.txt` also selects nested text files. Targets must end in
+`/`; paths below the directory preceding the first wildcard retain their
+hierarchy. Literal prefixes within wildcard segments work too, such as
+`assets/report-*.txt`. Missing source directories produce no shared targets.
+Create, sync, and status use the same matching rules. Exclusions match the exact
+source key, and selective copy refresh accepts an individual source or target
+path within the selected files.
+
+Question-mark wildcards, character classes, brace expansion, extglobs, escaped
+wildcards, and embedded double stars such as `file**.txt` are unsupported and
+produce an explicit configuration error. Workforest does not expand these forms
+into a directory selection.
+
+Copy refresh prepares a complete replacement beside the destination before
+moving its old contents. If preparation fails, the old copy remains untouched.
+If installation fails after the old target was moved aside, Workforest restores
+that target, including a destination symlink without changing its referent.
+If restoration or cleanup fails, the error identifies the retained recovery
+paths and what to inspect or restore. A cleanup error can occur after the new
+copy was installed; the diagnostic states that the target was replaced. After
+correcting a source or filesystem problem, retry `wf sync --refresh` (or select
+one source or target). This preservation applies to each copy independently;
+earlier completed entries and Git operations are not rolled back as a group.
+
+Sharing destinations must be strictly inside their destination worktree. Targets
+cannot be the worktree root, contain a `.git` component, alias Git metadata,
+overlap any shared source, or overlap another planned target. Existing ancestor
+symlinks are resolved during validation, so a directory link cannot redirect a
+write outside the worktree or onto source data. A target symlink itself can be
+replaced safely: its referent is preserved. External shared sources remain
+supported when these destination and source-preservation rules hold.
+
+Create validates the configuration before creating a branch or worktree. Sync
+validates every available destination before pruning or changing shared files.
+Sharing rechecks the complete plan against the filesystem immediately before
+application, including ancestors materialized by a new checkout. A checkout
+that introduces an unsafe ancestor can therefore fail after Git creation; it
+is retained for inspection and recovery. These checks do not coordinate with
+concurrent filesystem changes and do not make Git and filesystem operations a
+transaction.
 
 ## Development
 

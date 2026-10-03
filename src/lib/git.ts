@@ -217,3 +217,39 @@ export function validateSharedRepo(
   }
   return repo;
 }
+
+/** Prune registrations and report only removals observed in live Git inventory. */
+export function pruneWorktrees(
+  repoRoot: string,
+  onProgress: (action: string, completed?: boolean) => void,
+  beforeRepo: RepoDiscovery = discoverRepo(repoRoot),
+): RepoDiscovery {
+  const result = runGit(repoRoot, ["worktree", "prune", "--expire", "now"]);
+  if (!result.success) {
+    onProgress(
+      `Git pruning did not finish in ${repoRoot}; inspect registrations`,
+      false,
+    );
+    throw new Error(result.stderr || "Failed to prune git worktrees.");
+  }
+
+  let currentRepo: RepoDiscovery;
+  try {
+    currentRepo = discoverRepo(repoRoot);
+  } catch (error) {
+    onProgress(
+      `Git pruning completed in ${repoRoot}, but registrations could not be inspected`,
+      false,
+    );
+    throw error;
+  }
+  const registeredPaths = new Set(
+    currentRepo.activeWorktrees.map((entry) => resolve(entry.path)),
+  );
+  for (const entry of beforeRepo.activeWorktrees) {
+    if (!registeredPaths.has(resolve(entry.path))) {
+      onProgress(`Pruned Git worktree registration ${entry.path}`);
+    }
+  }
+  return currentRepo;
+}

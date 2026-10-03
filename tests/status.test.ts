@@ -291,6 +291,69 @@ describe("statusWorktrees", () => {
 });
 
 describe("wf status", () => {
+  test("reports detached-state and main-role drift against live Git without mutation", () => {
+    const { cwd, main, feature, manifest, manifestPath } = fixture();
+    git(feature, ["checkout", "--detach"]);
+    manifest.worktrees.find((entry) => entry.path === main)!.isMain = false;
+    manifest.worktrees.find((entry) => entry.path === feature)!.isMain = true;
+    writeManifest(manifestPath, manifest);
+    const beforeManifest = readFileSync(manifestPath, "utf8");
+    const beforeGit = git(main, ["worktree", "list", "--porcelain"]);
+    const result = runCli(cwd, "--json");
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout.toString())).toEqual({
+      level: "warning",
+      findings: [
+        {
+          code: "worktree_main_mismatch",
+          path: main,
+          branch: "main",
+          message: "Manifest main role is false; Git main role is true.",
+        },
+        {
+          code: "worktree_detached_mismatch",
+          path: feature,
+          branch: "feature/demo",
+          message: "Manifest branch is feature/demo; Git branch is detached.",
+        },
+        {
+          code: "worktree_main_mismatch",
+          path: feature,
+          branch: "feature/demo",
+          message: "Manifest main role is true; Git main role is false.",
+        },
+      ],
+    });
+    expect(readFileSync(manifestPath, "utf8")).toBe(beforeManifest);
+    expect(git(main, ["worktree", "list", "--porcelain"])).toBe(beforeGit);
+    expect(readFileSync(join(main, ".env"), "utf8")).toBe("EXAMPLE=value\n");
+  });
+
+  test("reports a changed branch without rewriting inventory or touching links", () => {
+    const { cwd, main, feature, manifestPath } = fixture();
+    git(feature, ["checkout", "-b", "feature/current"]);
+    const beforeManifest = readFileSync(manifestPath, "utf8");
+    const beforeGit = git(main, ["worktree", "list", "--porcelain"]);
+    const beforeLink = readlinkSync(join(feature, ".env"));
+    const result = runCli(cwd, "--json");
+    expect(result.exitCode).toBe(1);
+    const json = JSON.parse(result.stdout.toString());
+    expect(Object.keys(json)).toEqual(["level", "findings"]);
+    expect(json.level).toBe("warning");
+    expect(json.findings).toEqual([
+      {
+        code: "worktree_branch_mismatch",
+        path: feature,
+        branch: "feature/demo",
+        message:
+          "Manifest branch is feature/demo; Git branch is feature/current.",
+      },
+    ]);
+    expect(readFileSync(manifestPath, "utf8")).toBe(beforeManifest);
+    expect(git(main, ["worktree", "list", "--porcelain"])).toBe(beforeGit);
+    expect(readlinkSync(join(feature, ".env"))).toBe(beforeLink);
+  });
+
   test("prints a stable clean summary and exact JSON schema with exit 0", () => {
     const { cwd } = fixture();
     const human = runCli(cwd);
