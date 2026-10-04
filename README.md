@@ -313,3 +313,53 @@ bun src/cli.ts create --help
 ## License
 
 See [LICENSE](LICENSE).
+
+## Worktree hooks
+
+Place shared executable scripts beside `workforest.yaml`, under
+`.workforest/<event>/`. Supported events are `pre-create`, `post-create`,
+`pre-remove`, `post-remove`, `pre-sync`, and `post-sync`. For example:
+
+```text
+workforest.yaml
+.workforest/
+  post-create/
+    10-install
+    20-build
+  pre-remove/
+    10-stop-containers
+```
+
+Scripts run sequentially in filename order. Only executable direct files are
+eligible; directories and non-executable files are ignored. Give each script a
+shebang (for example `#!/bin/sh`) and make it executable with `chmod +x`. Hooks
+use their own interpreter and inherit your environment, terminal input, output,
+and error streams. Workforest prints the script identity before it runs.
+
+Hooks receive `WF_EVENT`, `WF_WORKTREE_PATH`, `WF_BRANCH`, `WF_REPO_ROOT`, and
+`WF_MANIFEST_DIR`. Paths are absolute; the branch is empty when detached or
+unavailable. `pre-create` and `post-remove` run from the manifest directory;
+other events run from the target worktree. The shared hook directory is resolved
+from the manifest, regardless of your current directory or target branch.
+
+```sh
+wf hooks list
+wf hooks run post-create feature/my-branch
+wf hooks run post-create ./feature --script 20-build
+wf hooks run pre-create ./future --branch feature/future
+wf hooks run post-remove ./removed --branch feature/removed
+```
+
+Manual execution runs scripts without creating, removing, or synchronizing a
+worktree. Existing targets accept paths or branch names. `pre-create` and
+`post-remove` additionally accept explicit paths that need not exist; only these
+events accept `--branch`. `--script` selects a direct executable filename.
+Missing or empty event folders do nothing.
+
+The first failed script stops the command. Ctrl-C stops the active script and
+command. Completed work and script effects remain; there is no rollback or
+successful-script checkpoint. Make scripts safe to repeat, and rerun either the
+event or just the failed script after correcting the problem. Lifecycle commands
+support `--skip-hooks` for recovery (for example `wf sync --skip-hooks` to
+reconcile inventory after a failed post-create). This flag bypasses Workforest
+hooks; Git's own hooks still run normally.
