@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
 import { discoverRepo, pruneWorktrees, runGit } from "../../lib/git.ts";
-import { discoverHooks, runHooks } from "../../lib/hooks.ts";
+import { runLifecycleHooks } from "../../lib/lifecycle-hooks.ts";
 import { resolveWorktreeTarget } from "../../lib/target.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
@@ -100,29 +100,16 @@ export async function removeWorktree(
     repoRoot: manifest.repo.root,
     manifestDir: dirname(manifestPath),
   };
-  const hooks = async (event: "pre-remove" | "post-remove") => {
-    if (
-      options.skipHooks ||
-      discoverHooks(context.manifestDir, event).length === 0
-    )
-      return;
-    try {
-      await runHooks({ ...context, event });
-    } catch (error) {
-      progress.record(
-        `Hook effects may remain from ${event} at ${worktreePath}`,
-        false,
-      );
-      throw error;
-    }
-    progress.record(`Completed ${event} hooks at ${worktreePath}`);
-  };
   let branchDeletionError: string | undefined;
   try {
     if (alreadyMissing) {
       pruneWorktrees(manifest.repo.root, progress.record);
     } else {
-      await hooks("pre-remove");
+      await runLifecycleHooks(
+        { ...context, event: "pre-remove" },
+        options.skipHooks,
+        progress.record,
+      );
       if (!options.force) {
         const status = runGit(worktreePath, ["status", "--porcelain"]);
         if (!status.success)
@@ -191,7 +178,11 @@ export async function removeWorktree(
       );
     }
 
-    await hooks("post-remove");
+    await runLifecycleHooks(
+      { ...context, event: "post-remove" },
+      options.skipHooks,
+      progress.record,
+    );
     return {
       worktreePath,
       branchName: worktree.branch,

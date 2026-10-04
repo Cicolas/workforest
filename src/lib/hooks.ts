@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -52,6 +52,28 @@ export function discoverHooks(
   });
 }
 
+interface HookProcess {
+  pid: number;
+  parent: number;
+  group: number;
+}
+
+function inspectProcesses(): HookProcess[] | undefined {
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid="], {
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) return undefined;
+  return result.stdout
+    .trim()
+    .split("\n")
+    .flatMap((line) => {
+      const [pid, parent, group] = line.trim().split(/\s+/).map(Number);
+      if (!pid || parent === undefined || !group || pid === result.pid)
+        return [];
+      return [{ pid, parent, group }];
+    });
+}
+
 export async function runHooks(
   context: HookContext,
   script?: string,
@@ -89,12 +111,21 @@ export async function runHooks(
         new Error(
           `Hook ${context.event} '${hook.name}' failed for ${context.worktreePath}: ${reason}. Earlier hook effects may remain. Correct the script and rerun wf hooks run ${context.event} ${context.worktreePath} --script ${hook.name}.`,
         );
+      const initialProcesses =
+        process.platform === "win32" ? undefined : inspectProcesses();
+      const ownsGroup = initialProcesses?.some(
+        ({ pid, group }) => pid === process.pid && group === process.pid,
+      );
+      const initialPeers = new Set(
+        initialProcesses
+          ?.filter(({ group }) => group === process.pid)
+          .map(({ pid }) => pid),
+      );
       let child;
       try {
         child = spawn(hook.path, [], {
           cwd,
           stdio: "inherit",
-          detached: process.platform !== "win32",
           env: {
             ...process.env,
             WF_EVENT: context.event,
@@ -116,17 +147,73 @@ export async function runHooks(
       }
       let cancelled: string | undefined;
       let escalation: ReturnType<typeof setTimeout> | undefined;
-      const kill = (signal: NodeJS.Signals) => {
-        try {
-          if (process.platform !== "win32" && child.pid)
-            process.kill(-child.pid, signal);
-          else child.kill(signal);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      // Keep the inherited session/foreground terminal for interactive commands.
+      // Snapshot descendants before signalling: they can be reparented when the
+      // hook exits, but still need terminating if they ignore the first signal.
+      const descendants = new Set<number>();
+      let cancellationDetail = "";
+      const captureDescendants = () => {
+        if (process.platform === "win32" || !child.pid) return;
+        const entries = inspectProcesses();
+        if (!entries) {
+          cancellationDetail =
+            "; could not inspect hook descendants for cancellation";
+          return;
         }
+        // Terminal Ctrl-C can terminate the hook before our signal handler runs.
+        // Its orphaned children retain the foreground job's group. Only use that
+        // identity when wf owns the job; preserve every pre-existing pipeline peer.
+        if (ownsGroup) {
+          const parentsByPid = new Map(
+            entries.map(({ pid, parent }) => [pid, parent]),
+          );
+          const belongsToPeer = (pid: number) => {
+            const visited = new Set<number>();
+            let parent = parentsByPid.get(pid);
+            while (parent && !visited.has(parent)) {
+              if (parent !== process.pid && initialPeers.has(parent))
+                return true;
+              visited.add(parent);
+              parent = parentsByPid.get(parent);
+            }
+            return false;
+          };
+          for (const { pid, group } of entries) {
+            if (
+              group === process.pid &&
+              !initialPeers.has(pid) &&
+              !belongsToPeer(pid)
+            )
+              descendants.add(pid);
+          }
+        }
+        const parents = new Set([child.pid]);
+        let found = true;
+        while (found) {
+          found = false;
+          for (const { pid, parent } of entries) {
+            if (parents.has(parent) && !parents.has(pid)) {
+              parents.add(pid);
+              descendants.add(pid);
+              found = true;
+            }
+          }
+        }
+      };
+      const kill = (signal: NodeJS.Signals) => {
+        for (const pid of descendants) {
+          try {
+            process.kill(pid, signal);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+              cancellationDetail = "; could not signal a hook descendant";
+          }
+        }
+        child.kill(signal);
       };
       const interrupt = (signal: NodeJS.Signals) => {
         cancelled = signal;
+        captureDescendants();
         kill(signal);
         escalation ??= setTimeout(() => kill("SIGKILL"), 1000);
       };
@@ -144,14 +231,17 @@ export async function runHooks(
         cleanup();
         reject(failure(error.message));
       });
-      child.once("close", (code, signal) => {
+      child.once("close", async (code, signal) => {
+        // A terminal signal and hook exit can arrive together. Let pending signal
+        // handlers run before accepting success or launching another hook.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         if (cancelled) kill("SIGKILL");
         cleanup();
         if (cancelled || code !== 0)
           reject(
             failure(
               cancelled
-                ? `cancelled by ${cancelled}`
+                ? `cancelled by ${cancelled}${cancellationDetail}`
                 : signal
                   ? `terminated by ${signal}`
                   : `exit code ${code}`,

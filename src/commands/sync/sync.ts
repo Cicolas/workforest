@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
 import { pruneWorktrees, validateSharedRepo } from "../../lib/git.ts";
-import { discoverHooks, runHooks, type HookEvent } from "../../lib/hooks.ts";
+import { runLifecycleHooks } from "../../lib/lifecycle-hooks.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import {
   applySharedLinks,
@@ -69,39 +69,23 @@ export async function syncWorktrees(
       currentRepo.activeWorktrees,
     );
 
-    const runEvent = async (event: HookEvent, worktree: WorktreeEntry) => {
-      if (
-        options.skipHooks ||
-        discoverHooks(dirname(manifestPath), event).length === 0
-      )
-        return;
-      try {
-        await runHooks({
-          event,
-          worktreePath: worktree.path,
-          branch: worktree.branch,
-          repoRoot: currentRepo.repoRoot,
-          manifestDir: dirname(manifestPath),
-        });
-        progress.record(
-          `Completed ${event} hooks for ${worktree.path}; script effects remain`,
-        );
-      } catch (error) {
-        progress.record(
-          `${event} hook effects may remain for ${worktree.path}`,
-          false,
-        );
-        throw error;
-      }
-    };
-
     let sharedLinksCreated = 0;
     for (const worktree of mergedWorktrees) {
       if (worktree.isMain || !existsSync(worktree.path)) {
         continue;
       }
 
-      await runEvent("pre-sync", worktree);
+      const context = {
+        worktreePath: worktree.path,
+        branch: worktree.branch,
+        repoRoot: currentRepo.repoRoot,
+        manifestDir: dirname(manifestPath),
+      };
+      await runLifecycleHooks(
+        { ...context, event: "pre-sync" },
+        options.skipHooks,
+        progress.record,
+      );
       sharedLinksCreated += applySharedLinks(
         manifest.repo.root,
         worktree.path,
@@ -110,7 +94,11 @@ export async function syncWorktrees(
         options.refresh,
         progress.record,
       );
-      await runEvent("post-sync", worktree);
+      await runLifecycleHooks(
+        { ...context, event: "post-sync" },
+        options.skipHooks,
+        progress.record,
+      );
     }
 
     const afterPaths = pathSet(mergedWorktrees);
