@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
 import { pruneWorktrees, validateSharedRepo } from "../../lib/git.ts";
+import { discoverHooks, runHooks, type HookEvent } from "../../lib/hooks.ts";
 import type { WorktreeEntry } from "../../lib/manifest.ts";
 import {
   applySharedLinks,
@@ -14,6 +15,7 @@ import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface SyncOptions {
   refresh?: boolean | string;
+  skipHooks?: boolean;
 }
 
 export interface SyncResult {
@@ -28,10 +30,10 @@ function pathSet(worktrees: WorktreeEntry[]): Set<string> {
   return new Set(worktrees.map((entry) => resolve(entry.path)));
 }
 
-export function syncWorktrees(
+export async function syncWorktrees(
   cwd: string,
   options: SyncOptions = {},
-): SyncResult {
+): Promise<SyncResult> {
   const { manifestPath, manifest } = readManifest(cwd);
   const beforeRepo = validateSharedRepo(manifest);
   expandSharedLinks(
@@ -67,12 +69,39 @@ export function syncWorktrees(
       currentRepo.activeWorktrees,
     );
 
+    const runEvent = async (event: HookEvent, worktree: WorktreeEntry) => {
+      if (
+        options.skipHooks ||
+        discoverHooks(dirname(manifestPath), event).length === 0
+      )
+        return;
+      try {
+        await runHooks({
+          event,
+          worktreePath: worktree.path,
+          branch: worktree.branch,
+          repoRoot: currentRepo.repoRoot,
+          manifestDir: dirname(manifestPath),
+        });
+        progress.record(
+          `Completed ${event} hooks for ${worktree.path}; script effects remain`,
+        );
+      } catch (error) {
+        progress.record(
+          `${event} hook effects may remain for ${worktree.path}`,
+          false,
+        );
+        throw error;
+      }
+    };
+
     let sharedLinksCreated = 0;
     for (const worktree of mergedWorktrees) {
       if (worktree.isMain || !existsSync(worktree.path)) {
         continue;
       }
 
+      await runEvent("pre-sync", worktree);
       sharedLinksCreated += applySharedLinks(
         manifest.repo.root,
         worktree.path,
@@ -81,6 +110,7 @@ export function syncWorktrees(
         options.refresh,
         progress.record,
       );
+      await runEvent("post-sync", worktree);
     }
 
     const afterPaths = pathSet(mergedWorktrees);
@@ -115,7 +145,7 @@ export function syncWorktrees(
     throw progress.failure(
       error,
       manifestPath,
-      "Correct the reported problem, inspect any recovery artifacts, and run wf sync again to reconcile sharing and inventory. If you requested copy refresh, repeat wf sync --refresh with the same selection after recovery.",
+      "Correct the reported problem, inspect any recovery artifacts, and run wf sync --skip-hooks to reconcile sharing and inventory without repeating hook effects. Correct failing scripts and retry them with wf hooks run. If you requested copy refresh, repeat wf sync --refresh with the same selection after recovery.",
     );
   }
 }

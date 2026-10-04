@@ -14,9 +14,10 @@ export function registerSyncCommand(program: Command): void {
       "--refresh [path]",
       "replace all shared copies, or only the given source or target path",
     )
-    .action((options: SyncOptions) => {
+    .option("--skip-hooks", "skip Workforest lifecycle hooks")
+    .action(async (options: SyncOptions) => {
       try {
-        const result = syncWorktrees(process.cwd(), options);
+        const result = await syncWorktrees(process.cwd(), options);
         console.log(
           `${colors.success("Synced")} ${result.worktrees.length} worktree(s) (${result.createdWorktrees.length} created, ${result.removedWorktrees.length} removed, ${result.sharedLinksCreated} shared path(s) updated)`,
         );
