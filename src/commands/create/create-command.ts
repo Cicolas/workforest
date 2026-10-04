@@ -2,7 +2,7 @@ import type { Command } from "commander";
 
 import { colors } from "../../lib/colors.ts";
 import { reportAndExit } from "../../lib/errors.ts";
-import { createWorktree } from "./create.ts";
+import { createWorktree, type CreateOptions } from "./create.ts";
 
 export function registerCreateCommand(program: Command): void {
   program
@@ -12,14 +12,22 @@ export function registerCreateCommand(program: Command): void {
     )
     .argument("<folder>", "folder to create for the new worktree")
     .argument("<branch-name>", "new branch name for the worktree")
-    .action((folder: string, branchName: string) => {
-      try {
-        const result = createWorktree(process.cwd(), folder, branchName);
-        console.log(
-          `${colors.success("Created")} ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared path(s), manifest updated at ${result.manifestPath})`,
-        );
-      } catch (error) {
-        reportAndExit(error);
-      }
-    });
+    .option("--skip-hooks", "skip Workforest lifecycle hooks")
+    .action(
+      async (folder: string, branchName: string, options: CreateOptions) => {
+        try {
+          const result = await createWorktree(
+            process.cwd(),
+            folder,
+            branchName,
+            options,
+          );
+          console.log(
+            `${colors.success("Created")} ${result.worktreePath} on ${result.branchName} (${result.sharedLinksCreated} shared path(s), manifest updated at ${result.manifestPath})`,
+          );
+        } catch (error) {
+          reportAndExit(error);
+        }
+      },
+    );
 }

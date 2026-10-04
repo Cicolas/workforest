@@ -11,9 +11,10 @@ export function registerRemoveCommand(program: Command): void {
     .argument("<target>", "worktree path or branch name")
     .option("--force", "allow removal of a dirty worktree")
     .option("--delete-branch", "safely delete the associated local branch")
-    .action((target: string, options: RemoveOptions) => {
+    .option("--skip-hooks", "skip Workforest lifecycle hooks")
+    .action(async (target: string, options: RemoveOptions) => {
       try {
-        const result = removeWorktree(process.cwd(), target, options);
+        const result = await removeWorktree(process.cwd(), target, options);
         const branch = result.branchName ?? "detached";
         const deletion = !result.branchDeletionRequested
           ? "not requested"

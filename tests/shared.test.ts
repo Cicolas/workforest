@@ -216,7 +216,7 @@ describe("applying shared entries", () => {
 });
 
 describe("shared copies in worktree workflows", () => {
-  test("create and sync apply mixed entries and status checks copies without modifying them", () => {
+  test("create and sync apply mixed entries and status checks copies without modifying them", async () => {
     const { cwd, main, feature } = fixture();
     git(main, "init", "-b", "main");
     git(main, "config", "user.name", "Workforest Test");
@@ -234,7 +234,7 @@ describe("shared copies in worktree workflows", () => {
       ".env.local": { target: ".env.local", copy: true },
     };
     writeManifest(loaded.manifestPath, { ...loaded.manifest, shared });
-    const result = createWorktree(cwd, "feature", "feature/copy");
+    const result = await createWorktree(cwd, "feature", "feature/copy");
     expect(result.sharedLinksCreated).toBe(3);
     expect(lstatSync(join(feature, "linked-readme")).isSymbolicLink()).toBe(
       true,
@@ -243,7 +243,7 @@ describe("shared copies in worktree workflows", () => {
     expect(readManifest(cwd).manifest.shared).toEqual(shared);
     expect(statusWorktrees(cwd)).toEqual({ level: "ok", findings: [] });
     writeFileSync(join(feature, ".env"), "worktree edit");
-    expect(syncWorktrees(cwd).sharedLinksCreated).toBe(0);
+    expect((await syncWorktrees(cwd)).sharedLinksCreated).toBe(0);
     expect(statusWorktrees(cwd)).toEqual({ level: "ok", findings: [] });
     expect(readFileSync(join(feature, ".env"), "utf8")).toBe("worktree edit");
     rmSync(join(feature, ".env"));
@@ -261,7 +261,7 @@ describe("shared copies in worktree workflows", () => {
       "shared_copy_wrong_type",
     );
     writeFileSync(join(main, ".env"), "updated");
-    expect(syncWorktrees(cwd).sharedLinksCreated).toBe(0);
+    expect((await syncWorktrees(cwd)).sharedLinksCreated).toBe(0);
     expect(lstatSync(join(feature, ".env")).isDirectory()).toBe(true);
     const cliPath = resolve(import.meta.dir, "../src/cli.ts");
     const runSync = (...args: string[]) => {
