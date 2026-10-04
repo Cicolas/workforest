@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
@@ -8,6 +8,7 @@ import {
   applySharedLinks,
   preflightSharedLinks,
 } from "../../lib/shared-links.ts";
+import { discoverHooks, runHooks } from "../../lib/hooks.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface CreateResult {
@@ -17,11 +18,16 @@ export interface CreateResult {
   manifestPath: string;
 }
 
-export function createWorktree(
+export interface CreateOptions {
+  skipHooks?: boolean;
+}
+
+export async function createWorktree(
   cwd: string,
   folder: string,
   branchName: string,
-): CreateResult {
+  options: CreateOptions = {},
+): Promise<CreateResult> {
   const { manifestPath, manifest } = readManifest(cwd);
   const worktreePath = resolve(cwd, folder);
 
@@ -46,7 +52,31 @@ export function createWorktree(
     `refs/heads/${branchName}`,
   ]).success;
   const pathExisted = existsSync(worktreePath);
+  const context = {
+    worktreePath,
+    branch: branchName,
+    repoRoot: manifest.repo.root,
+    manifestDir: dirname(manifestPath),
+  };
+  const hooks = async (event: "pre-create" | "post-create") => {
+    if (
+      options.skipHooks ||
+      discoverHooks(context.manifestDir, event).length === 0
+    )
+      return;
+    try {
+      await runHooks({ ...context, event });
+    } catch (error) {
+      progress.record(
+        `Hook effects may remain from ${event} at ${worktreePath}`,
+        false,
+      );
+      throw error;
+    }
+    progress.record(`Completed ${event} hooks at ${worktreePath}`);
+  };
   try {
+    await hooks("pre-create");
     const addResult = runGit(manifest.repo.root, [
       "worktree",
       "add",
@@ -103,6 +133,7 @@ export function createWorktree(
       },
       progress.recordManifest,
     );
+    await hooks("post-create");
     return {
       worktreePath,
       branchName,
@@ -113,7 +144,7 @@ export function createWorktree(
     throw progress.failure(
       error,
       manifestPath,
-      "Correct the reported problem and run wf sync to adopt the existing Git worktree and reconcile sharing and inventory. Do not repeat wf create for a branch or worktree that already exists. If only the branch exists, inspect git worktree list and use git worktree add with that existing branch to finish registration.",
+      "Correct the reported problem and run wf sync --skip-hooks to adopt the existing Git worktree and reconcile sharing and inventory. Do not repeat wf create for a branch or worktree that already exists. If only the branch exists, inspect git worktree list and use git worktree add with that existing branch to finish registration.",
     );
   }
 }

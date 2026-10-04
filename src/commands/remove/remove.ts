@@ -1,15 +1,17 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { readManifest, writeManifest } from "../../lib/config.ts";
 import { OperationProgress } from "../../lib/errors.ts";
 import { discoverRepo, pruneWorktrees, runGit } from "../../lib/git.ts";
+import { discoverHooks, runHooks } from "../../lib/hooks.ts";
 import { resolveWorktreeTarget } from "../../lib/target.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface RemoveOptions {
   force?: boolean;
   deleteBranch?: boolean;
+  skipHooks?: boolean;
 }
 
 export interface RemoveResult {
@@ -22,11 +24,11 @@ export interface RemoveResult {
   manifestPath: string;
 }
 
-export function removeWorktree(
+export async function removeWorktree(
   cwd: string,
   target: string,
   options: RemoveOptions = {},
-): RemoveResult {
+): Promise<RemoveResult> {
   const { manifestPath, manifest } = readManifest(cwd);
   // Inspect registrations before pruning: the inventory is a cache, and a
   // worktree may have switched branches (or detached) since the last sync.
@@ -92,11 +94,44 @@ export function removeWorktree(
   }
 
   const progress = new OperationProgress();
+  const context = {
+    worktreePath,
+    branch: worktree.branch,
+    repoRoot: manifest.repo.root,
+    manifestDir: dirname(manifestPath),
+  };
+  const hooks = async (event: "pre-remove" | "post-remove") => {
+    if (
+      options.skipHooks ||
+      discoverHooks(context.manifestDir, event).length === 0
+    )
+      return;
+    try {
+      await runHooks({ ...context, event });
+    } catch (error) {
+      progress.record(
+        `Hook effects may remain from ${event} at ${worktreePath}`,
+        false,
+      );
+      throw error;
+    }
+    progress.record(`Completed ${event} hooks at ${worktreePath}`);
+  };
   let branchDeletionError: string | undefined;
   try {
     if (alreadyMissing) {
       pruneWorktrees(manifest.repo.root, progress.record);
     } else {
+      await hooks("pre-remove");
+      if (!options.force) {
+        const status = runGit(worktreePath, ["status", "--porcelain"]);
+        if (!status.success)
+          throw new Error(status.stderr || "Failed to check worktree status.");
+        if (status.stdout)
+          throw new Error(
+            `Worktree has uncommitted changes after pre-remove: ${worktreePath}. Use --force to remove it.`,
+          );
+      }
       const removal = runGit(manifest.repo.root, [
         "worktree",
         "remove",
@@ -156,6 +191,7 @@ export function removeWorktree(
       );
     }
 
+    await hooks("post-remove");
     return {
       worktreePath,
       branchName: worktree.branch,
@@ -175,7 +211,7 @@ export function removeWorktree(
     throw progress.failure(
       detail,
       manifestPath,
-      "Correct the reported filesystem or persistence problem and run wf sync to reconcile the manifest with Git. A removed worktree is not restored. Inspect any retained branch and merge its history before retrying safe branch deletion separately.",
+      "Correct the reported filesystem or persistence problem and run wf sync --skip-hooks to reconcile the manifest with Git. A removed worktree is not restored. Inspect any retained branch and merge its history before retrying safe branch deletion separately.",
     );
   }
 }

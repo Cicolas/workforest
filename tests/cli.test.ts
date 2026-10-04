@@ -55,7 +55,7 @@ describe("buildProgram", () => {
     const stdout = readStdout();
     expect(stdout).toContain("Usage: wf [options] [command]");
     expect(stdout).toContain("init [main-folder]");
-    expect(stdout).toContain("create <folder> <branch-name>");
+    expect(stdout).toContain("create [options] <folder> <branch-name>");
     expect(stdout).toContain("sync");
   });
 

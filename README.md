@@ -363,3 +363,15 @@ event or just the failed script after correcting the problem. Lifecycle commands
 support `--skip-hooks` for recovery (for example `wf sync --skip-hooks` to
 reconcile inventory after a failed post-create). This flag bypasses Workforest
 hooks; Git's own hooks still run normally.
+
+Automatic `pre-create` runs after validation, before Git creates the branch and
+worktree. `post-create` runs once sharing and the updated manifest are ready.
+Removal checks dirty state before `pre-remove` and again after cleanup; `--force`
+bypasses both checks while still running hooks. `post-remove` runs after removal
+and manifest persistence, including cleanup of already-missing targets (which
+skip `pre-remove`). Failed post-hooks preserve the completed core operation.
+
+Sync runs `pre-sync` and `post-sync` for each existing non-main worktree, even
+when sharing is unchanged. A post-sync hook follows that target's sharing update,
+before the command's final inventory persistence. A failed hook stops processing
+later targets; use `wf sync --skip-hooks` to reconcile inventory during recovery.

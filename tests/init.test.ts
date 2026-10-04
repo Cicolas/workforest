@@ -306,7 +306,7 @@ shared:
 });
 
 describe("createWorktree", () => {
-  test("creates a new worktree and applies shared symlinks", () => {
+  test("creates a new worktree and applies shared symlinks", async () => {
     const cwd = makeTempDir("workforest-create-");
     const mainDir = join(cwd, "main");
     const envPath = join(mainDir, ".env");
@@ -332,7 +332,7 @@ describe("createWorktree", () => {
       },
     });
 
-    const result = createWorktree(cwd, "feature-one", "feature/one");
+    const result = await createWorktree(cwd, "feature-one", "feature/one");
     const createdEnvPath = join(result.worktreePath, ".env");
     const createdModulesPath = join(result.worktreePath, "node_modules");
     const updatedManifest = readManifest(cwd).manifest;
@@ -358,7 +358,7 @@ describe("createWorktree", () => {
     ).toBe(true);
   });
 
-  test("replaces existing files and directories in the new worktree with shared symlinks", () => {
+  test("replaces existing files and directories in the new worktree with shared symlinks", async () => {
     const cwd = makeTempDir("workforest-create-replace-");
     const mainDir = join(cwd, "main");
     const envPath = join(mainDir, ".env");
@@ -385,7 +385,7 @@ describe("createWorktree", () => {
       },
     });
 
-    const result = createWorktree(cwd, "feature-two", "feature/two");
+    const result = await createWorktree(cwd, "feature-two", "feature/two");
     const createdEnvPath = join(result.worktreePath, ".env");
     const createdCachePath = join(result.worktreePath, "cache");
 
@@ -401,7 +401,7 @@ describe("createWorktree", () => {
     ).toBe(cacheDir);
   });
 
-  test("expands glob-style shared entries into nested symlinks", () => {
+  test("expands glob-style shared entries into nested symlinks", async () => {
     const cwd = makeTempDir("workforest-create-glob-");
     const mainDir = join(cwd, "main");
     const packageDir = join(mainDir, "node_modules", "left-pad");
@@ -430,7 +430,7 @@ describe("createWorktree", () => {
       },
     });
 
-    const result = createWorktree(cwd, "feature-glob", "feature/glob");
+    const result = await createWorktree(cwd, "feature-glob", "feature/glob");
     const linkedPackageFile = join(
       result.worktreePath,
       "node_modules",
@@ -457,7 +457,7 @@ describe("createWorktree", () => {
     );
   });
 
-  test("skips shared links when the source path does not exist", () => {
+  test("skips shared links when the source path does not exist", async () => {
     const cwd = makeTempDir("workforest-create-missing-source-");
     const mainDir = join(cwd, "main");
     const missingEnvPath = join(mainDir, ".env");
@@ -479,7 +479,7 @@ describe("createWorktree", () => {
       },
     });
 
-    const result = createWorktree(
+    const result = await createWorktree(
       cwd,
       "feature-missing-source",
       "feature/missing-source",
@@ -493,7 +493,7 @@ describe("createWorktree", () => {
     expect(existsSync(createdEnvPath)).toBe(false);
   });
 
-  test("does not create ignored shared links for a worktree", () => {
+  test("does not create ignored shared links for a worktree", async () => {
     const cwd = makeTempDir("workforest-create-ignore-shared-");
     const mainDir = join(cwd, "main");
     const envPath = join(mainDir, ".env");
@@ -530,7 +530,11 @@ describe("createWorktree", () => {
       },
     });
 
-    const result = createWorktree(cwd, "feature-ignore", "feature/ignore");
+    const result = await createWorktree(
+      cwd,
+      "feature-ignore",
+      "feature/ignore",
+    );
 
     tempDirs.push(result.worktreePath);
 
@@ -548,7 +552,7 @@ describe("createWorktree", () => {
 });
 
 describe("syncWorktrees", () => {
-  test("removes stale worktrees from the manifest after prune", () => {
+  test("removes stale worktrees from the manifest after prune", async () => {
     const cwd = makeTempDir("workforest-sync-prune-");
     const mainDir = join(cwd, "main");
 
@@ -561,11 +565,11 @@ describe("syncWorktrees", () => {
     run(["git", "commit", "-m", "init"], mainDir);
 
     initWorkforest(cwd, "main");
-    const created = createWorktree(cwd, "feature-prune", "feature/prune");
+    const created = await createWorktree(cwd, "feature-prune", "feature/prune");
 
     rmSync(created.worktreePath, { recursive: true, force: true });
 
-    const result = syncWorktrees(cwd);
+    const result = await syncWorktrees(cwd);
     const updatedManifest = readManifest(cwd).manifest;
 
     expect(result.removedWorktrees).toContain(created.worktreePath);
@@ -576,7 +580,7 @@ describe("syncWorktrees", () => {
     ).toBe(false);
   });
 
-  test("adds existing git worktrees that are missing from the manifest", () => {
+  test("adds existing git worktrees that are missing from the manifest", async () => {
     const cwd = makeTempDir("workforest-sync-create-");
     const mainDir = join(cwd, "main");
     const envPath = join(mainDir, ".env");
@@ -600,7 +604,7 @@ describe("syncWorktrees", () => {
       worktrees: loaded.manifest.worktrees.filter((entry) => entry.isMain),
     });
 
-    const result = syncWorktrees(cwd);
+    const result = await syncWorktrees(cwd);
     const linkedEnvPath = join(extraPath, ".env");
     const updatedManifest = readManifest(cwd).manifest;
 
@@ -616,7 +620,7 @@ describe("syncWorktrees", () => {
     ).toBe(true);
   });
 
-  test("finds workforest.yaml from inside a worktree via git rev-parse", () => {
+  test("finds workforest.yaml from inside a worktree via git rev-parse", async () => {
     const cwd = makeTempDir("workforest-sync-locate-");
     const mainDir = join(cwd, "main");
     const featurePath = join(cwd, "feature-locate");
@@ -632,11 +636,11 @@ describe("syncWorktrees", () => {
     run(["git", "commit", "-m", "init"], mainDir);
 
     initWorkforest(cwd, "main");
-    createWorktree(cwd, "feature-locate", "feature/locate");
+    await createWorktree(cwd, "feature-locate", "feature/locate");
 
     tempDirs.push(featurePath);
 
-    const result = syncWorktrees(featurePath);
+    const result = await syncWorktrees(featurePath);
 
     expect(result.manifestPath).toBe(join(cwd, "workforest.yaml"));
     expect(lstatSync(join(featurePath, ".env")).isSymbolicLink()).toBe(true);
@@ -648,7 +652,7 @@ describe("syncWorktrees", () => {
     ).toBe(envPath);
   });
 
-  test("preserves per-worktree exclusions and skips ignored shared links on sync", () => {
+  test("preserves per-worktree exclusions and skips ignored shared links on sync", async () => {
     const cwd = makeTempDir("workforest-sync-ignore-shared-");
     const mainDir = join(cwd, "main");
     const featurePath = join(cwd, "feature-ignore");
@@ -688,7 +692,7 @@ describe("syncWorktrees", () => {
 
     tempDirs.push(featurePath);
 
-    const result = syncWorktrees(cwd);
+    const result = await syncWorktrees(cwd);
     const syncedEntry = readManifest(cwd).manifest.worktrees.find(
       (entry) => entry.path === featurePath,
     );
