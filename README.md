@@ -1,3 +1,5 @@
+<img src="https://github.com/Cicolas/workforest/blob/main/resources/logo-xl.png"/>
+
 # workforest
 
 A CLI for managing Git worktree setups with shared files and per-worktree exclusions.
