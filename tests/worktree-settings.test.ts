@@ -48,9 +48,10 @@ function setupRepo() {
         ? {
             ...entry,
             path: `${feature}/../feature/./`,
+            description: "Investigate login: feature notes",
             ignoreShared: [".env"],
           }
-        : entry,
+        : { ...entry, description: "Main checkout notes" },
     ),
     shared: { ".env": ".env" },
   });
@@ -69,6 +70,13 @@ function runCli(cwd: string, ...args: string[]) {
 }
 
 function expectPreservedPolicy(root: string, feature: string) {
+  const { manifest } = readManifest(root);
+  expect(manifest.worktrees.find((entry) => entry.isMain)?.description).toBe(
+    "Main checkout notes",
+  );
+  expect(
+    manifest.worktrees.find((entry) => entry.path === feature)?.description,
+  ).toBe("Investigate login: feature notes");
   expect(lstatSync(join(feature, ".env")).isSymbolicLink()).toBe(false);
   expect(readFileSync(join(feature, ".env"), "utf8")).toBe(
     "independent secret\n",

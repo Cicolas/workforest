@@ -13,16 +13,18 @@ export function mergeWorktreeSettings(
   return discoveredWorktrees.map((entry) => {
     const existingEntry = currentByPath.get(resolve(entry.path));
 
-    if (
-      !existingEntry?.ignoreShared ||
-      existingEntry.ignoreShared.length === 0
-    ) {
+    if (!existingEntry) {
       return entry;
     }
 
     return {
       ...entry,
-      ignoreShared: [...existingEntry.ignoreShared],
+      ...(existingEntry.description !== undefined
+        ? { description: existingEntry.description }
+        : {}),
+      ...(existingEntry.ignoreShared && existingEntry.ignoreShared.length > 0
+        ? { ignoreShared: [...existingEntry.ignoreShared] }
+        : {}),
     };
   });
 }

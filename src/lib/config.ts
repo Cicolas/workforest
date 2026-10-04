@@ -95,6 +95,7 @@ function parseWorktreeBlock(
   const pathPair = parseKeyValue(pathLine.slice(2).trim());
   let branch: string | null = null;
   let isMain = false;
+  let description: string | undefined;
   const ignoreShared: string[] = [];
   let nextIndex = startIndex + 1;
 
@@ -109,6 +110,8 @@ function parseWorktreeBlock(
       branch = parseYamlScalar(pair.value);
     } else if (pair.key === "isMain") {
       isMain = pair.value === "true";
+    } else if (pair.key === "description") {
+      description = parseYamlScalar(pair.value) ?? "";
     } else if (pair.key === "ignoreShared") {
       nextIndex += 1;
 
@@ -133,6 +136,7 @@ function parseWorktreeBlock(
       path: parseYamlScalar(pathPair.value) ?? "",
       branch,
       isMain,
+      ...(description !== undefined ? { description } : {}),
       ...(ignoreShared.length > 0 ? { ignoreShared } : {}),
     },
     nextIndex,

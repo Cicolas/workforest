@@ -22,6 +22,19 @@ import {
 } from "../src/lib/manifest.ts";
 
 describe("quoted manifest names", () => {
+  test("preserves empty descriptions and omits descriptions that are not set", () => {
+    const manifest: WorkforestManifest = {
+      version: 1,
+      repo: { name: "demo", root: "/tmp/demo" },
+      worktrees: [
+        { path: "/tmp/demo", branch: "main", isMain: true, description: "" },
+        { path: "/tmp/feature", branch: "feature", isMain: false },
+      ],
+      shared: {},
+    };
+    expect(parseManifest(serializeManifest(manifest))).toEqual(manifest);
+  });
+
   test("decodes doubled apostrophes in single-quoted keys and values", () => {
     const manifest = parseManifest(`version: 1
 repo:
@@ -31,6 +44,7 @@ worktrees:
   - path: /tmp/demo/feature
     branch: null
     isMain: false
+    description: 'owner''s: feature work'
     ignoreShared:
       - 'owner''s:local'
 shared:
@@ -40,6 +54,7 @@ shared:
     copy: true
 `);
     expect(manifest.repo.name).toBe("demo's repo");
+    expect(manifest.worktrees[0].description).toBe("owner's: feature work");
     expect(manifest.shared).toEqual({
       "owner's:local": "target's:local",
       "copy's:name": { target: "copied's:name", copy: true },
@@ -57,6 +72,7 @@ shared:
           path: "/tmp/quoted fixture/main",
           branch: "true",
           isMain: true,
+          description: 'Fix "login": keep # notes\nSecond line',
           ignoreShared: ["settings:local", 'quote":after', "true", "null"],
         },
       ],

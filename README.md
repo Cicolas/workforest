@@ -209,7 +209,7 @@ The parser supports the manifest structure shown below, rather than the full
 YAML language. Quote source names containing colons or spaces. Double-quoted
 keys and values use JSON string escapes; single-quoted strings escape an
 apostrophe by doubling it (`'owner''s:settings'`). Rewrites preserve these
-names, sharing options, and exclusions, using double quotes where needed.
+names, descriptions, sharing options, and exclusions, using double quotes where needed.
 
 Example `workforest.yaml`:
 
@@ -225,6 +225,7 @@ worktrees:
   - path: /path/to/repo/feature-a
     branch: feature/a
     isMain: false
+    description: "Experiment with the new login flow"
     ignoreShared:
       - .env
 shared:
@@ -243,6 +244,8 @@ Behavior:
 - `wf create` and `wf sync` create missing copies from the main worktree and preserve existing targets, so worktree edits remain independent
 - `wf sync --refresh` replaces all copied targets; `wf sync --refresh .env.local` refreshes only the given source or target path (also supports individual files within a glob)
 - `wf status` checks that copies exist and match the source's file or directory type; it does not compare their contents
+- `description` is an optional note for each worktree; create, sync, and remove preserve it when rewriting the manifest
+- Use a quoted string for descriptions with punctuation; multiline notes can use `\n` escapes inside double quotes (YAML block scalars such as `|` are unsupported)
 - `ignoreShared` lets one worktree opt out of specific `shared` entries
 - glob-style shared entries such as `node_modules/**/*` are supported
 
