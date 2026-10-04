@@ -8,7 +8,7 @@ import {
   applySharedLinks,
   preflightSharedLinks,
 } from "../../lib/shared-links.ts";
-import { discoverHooks, runHooks } from "../../lib/hooks.ts";
+import { runLifecycleHooks } from "../../lib/lifecycle-hooks.ts";
 import { mergeWorktreeSettings } from "../../lib/worktree-settings.ts";
 
 export interface CreateResult {
@@ -58,25 +58,12 @@ export async function createWorktree(
     repoRoot: manifest.repo.root,
     manifestDir: dirname(manifestPath),
   };
-  const hooks = async (event: "pre-create" | "post-create") => {
-    if (
-      options.skipHooks ||
-      discoverHooks(context.manifestDir, event).length === 0
-    )
-      return;
-    try {
-      await runHooks({ ...context, event });
-    } catch (error) {
-      progress.record(
-        `Hook effects may remain from ${event} at ${worktreePath}`,
-        false,
-      );
-      throw error;
-    }
-    progress.record(`Completed ${event} hooks at ${worktreePath}`);
-  };
   try {
-    await hooks("pre-create");
+    await runLifecycleHooks(
+      { ...context, event: "pre-create" },
+      options.skipHooks,
+      progress.record,
+    );
     const addResult = runGit(manifest.repo.root, [
       "worktree",
       "add",
@@ -133,7 +120,11 @@ export async function createWorktree(
       },
       progress.recordManifest,
     );
-    await hooks("post-create");
+    await runLifecycleHooks(
+      { ...context, event: "post-create" },
+      options.skipHooks,
+      progress.record,
+    );
     return {
       worktreePath,
       branchName,

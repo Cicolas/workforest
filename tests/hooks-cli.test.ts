@@ -195,6 +195,62 @@ test("terminal input and both outputs are inherited and identity precedes script
   expect(result.stderr.toString()).toContain("stderr:visible");
 });
 
+test("interactive hooks retain their controlling terminal", () => {
+  const { root, main } = fixture();
+  script(
+    root,
+    "post-create",
+    "terminal",
+    '#!/bin/sh\nset -e\nprintf "tty-prompt:" > /dev/tty\nread value < /dev/tty\nprintf "tty-response:%s\\n" "$value"\n',
+  );
+  const result = Bun.spawnSync(
+    [
+      "python3",
+      "-c",
+      `import errno, os, pty, select, sys, time
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(sys.argv[1], sys.argv[1:])
+output = bytearray()
+answered = False
+try:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not select.select([fd], [], [], 0.1)[0]:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError as error:
+            if error.errno == errno.EIO:
+                break
+            raise
+        if not chunk:
+            break
+        output.extend(chunk)
+        if not answered and b"tty-prompt:" in output:
+            os.write(fd, b"hello-terminal\\n")
+            answered = True
+    else:
+        os.kill(pid, 9)
+    _, status = os.waitpid(pid, 0)
+    sys.stdout.buffer.write(output)
+    sys.exit(os.waitstatus_to_exitcode(status))
+finally:
+    os.close(fd)
+`,
+      process.execPath,
+      join(import.meta.dir, "../src/cli.ts"),
+      "hooks",
+      "run",
+      "post-create",
+      main,
+    ],
+    { cwd: root, stdout: "pipe", stderr: "pipe" },
+  );
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain("tty-response:hello-terminal");
+});
+
 test("interrupting only the CLI stops the active hook and descendants before later scripts", async () => {
   const { root, main } = fixture();
   const ready = join(root, "ready");

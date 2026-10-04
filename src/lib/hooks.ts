@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -94,7 +94,6 @@ export async function runHooks(
         child = spawn(hook.path, [], {
           cwd,
           stdio: "inherit",
-          detached: process.platform !== "win32",
           env: {
             ...process.env,
             WF_EVENT: context.event,
@@ -116,17 +115,52 @@ export async function runHooks(
       }
       let cancelled: string | undefined;
       let escalation: ReturnType<typeof setTimeout> | undefined;
-      const kill = (signal: NodeJS.Signals) => {
-        try {
-          if (process.platform !== "win32" && child.pid)
-            process.kill(-child.pid, signal);
-          else child.kill(signal);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      // Keep the inherited session/foreground terminal for interactive commands.
+      // Snapshot descendants before signalling: they can be reparented when the
+      // hook exits, but still need terminating if they ignore the first signal.
+      const descendants = new Set<number>();
+      let cancellationDetail = "";
+      const captureDescendants = () => {
+        if (process.platform === "win32" || !child.pid) return;
+        const result = spawnSync("ps", ["-axo", "pid=,ppid="], {
+          encoding: "utf8",
+        });
+        if (result.error || result.status !== 0) {
+          cancellationDetail =
+            "; could not inspect hook descendants for cancellation";
+          return;
         }
+        const entries = result.stdout
+          .trim()
+          .split("\n")
+          .map((line) => line.trim().split(/\s+/).map(Number));
+        const parents = new Set([child.pid]);
+        let found = true;
+        while (found) {
+          found = false;
+          for (const [pid, parent] of entries) {
+            if (parents.has(parent!) && !parents.has(pid!)) {
+              parents.add(pid!);
+              descendants.add(pid!);
+              found = true;
+            }
+          }
+        }
+      };
+      const kill = (signal: NodeJS.Signals) => {
+        for (const pid of descendants) {
+          try {
+            process.kill(pid, signal);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+              cancellationDetail = "; could not signal a hook descendant";
+          }
+        }
+        child.kill(signal);
       };
       const interrupt = (signal: NodeJS.Signals) => {
         cancelled = signal;
+        captureDescendants();
         kill(signal);
         escalation ??= setTimeout(() => kill("SIGKILL"), 1000);
       };
@@ -151,7 +185,7 @@ export async function runHooks(
           reject(
             failure(
               cancelled
-                ? `cancelled by ${cancelled}`
+                ? `cancelled by ${cancelled}${cancellationDetail}`
                 : signal
                   ? `terminated by ${signal}`
                   : `exit code ${code}`,
