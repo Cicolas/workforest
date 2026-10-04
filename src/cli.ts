@@ -1,6 +1,7 @@
 import { Command, CommanderError } from "commander";
 
 import { registerCreateCommand } from "./commands/create/create-command.ts";
+import { registerHooksCommand } from "./commands/hooks/hooks-command.ts";
 import { registerInitCommand } from "./commands/init/init-command.ts";
 import { registerListCommand } from "./commands/list/list-command.ts";
 import { registerRemoveCommand } from "./commands/remove/remove-command.ts";
@@ -24,6 +25,7 @@ export function buildProgram(): Command {
     .description("CLI helpers for managing Git worktree development flows.")
     .showHelpAfterError();
 
+  registerHooksCommand(program);
   registerInitCommand(program);
   registerCreateCommand(program);
   registerSyncCommand(program);
@@ -40,7 +42,7 @@ export function buildProgram(): Command {
   return program;
 }
 
-export function run(argv = process.argv): void {
+export async function run(argv = process.argv): Promise<void> {
   const program = buildProgram();
   for (const command of [program, ...program.commands]) {
     command.exitOverride();
@@ -52,7 +54,7 @@ export function run(argv = process.argv): void {
   }
 
   try {
-    program.parse(argv);
+    await program.parseAsync(argv);
   } catch (error) {
     if (error instanceof CommanderError) {
       const statusFailure = argv[2] === "status" && error.exitCode !== 0;
@@ -67,5 +69,5 @@ export function run(argv = process.argv): void {
 }
 
 if (import.meta.main) {
-  run();
+  await run();
 }
