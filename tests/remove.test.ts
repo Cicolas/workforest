@@ -58,9 +58,9 @@ afterEach(() => {
 });
 
 describe("removeWorktree", () => {
-  test("removes a clean worktree by branch while retaining the branch by default", () => {
+  test("removes a clean worktree by branch while retaining the branch by default", async () => {
     const { root, main, feature } = setupRepo();
-    const result = removeWorktree(root, "feature/demo");
+    const result = await removeWorktree(root, "feature/demo");
 
     expect(result).toMatchObject({
       worktreePath: feature,
@@ -77,10 +77,10 @@ describe("removeWorktree", () => {
     );
   });
 
-  test("resolves normalized absolute and cwd-relative paths", () => {
+  test("resolves normalized absolute and cwd-relative paths", async () => {
     const { root, main, feature } = setupRepo();
     mkdirSync(join(main, "nested"));
-    const result = removeWorktree(
+    const result = await removeWorktree(
       join(main, "nested"),
       "../../feature/../feature",
     );
@@ -88,59 +88,67 @@ describe("removeWorktree", () => {
     expect(readManifest(root).manifest.worktrees).toHaveLength(1);
   });
 
-  test("refuses the main worktree even with force and branch deletion", () => {
+  test("refuses the main worktree even with force and branch deletion", async () => {
     const { root, main } = setupRepo();
-    expect(() =>
+    await expect(
       removeWorktree(root, main, { force: true, deleteBranch: true }),
-    ).toThrow(/main worktree/);
+    ).rejects.toThrow(/main worktree/);
     expect(existsSync(main)).toBe(true);
     expect(readManifest(root).manifest.worktrees).toHaveLength(2);
   });
 
-  test("protects repo.root even when the manifest main marker is incorrect", () => {
+  test("protects repo.root even when the manifest main marker is incorrect", async () => {
     const { root, main } = setupRepo();
     const { manifestPath, manifest } = readManifest(root);
     manifest.worktrees[0].isMain = false;
     writeManifest(manifestPath, manifest);
-    expect(() => removeWorktree(root, main)).toThrow(/main worktree/);
+    await expect(removeWorktree(root, main)).rejects.toThrow(/main worktree/);
   });
 
-  test("refuses both tracked modifications and untracked files without force", () => {
+  test("refuses both tracked modifications and untracked files without force", async () => {
     const { root, feature } = setupRepo();
     writeFileSync(join(feature, "README.md"), "modified\n");
-    expect(() => removeWorktree(root, "feature/demo")).toThrow(/--force/);
+    await expect(removeWorktree(root, "feature/demo")).rejects.toThrow(
+      /--force/,
+    );
     git(feature, "restore", "README.md");
     writeFileSync(join(feature, "untracked.txt"), "untracked\n");
-    expect(() => removeWorktree(root, "feature/demo")).toThrow(/--force/);
+    await expect(removeWorktree(root, "feature/demo")).rejects.toThrow(
+      /--force/,
+    );
     expect(existsSync(feature)).toBe(true);
     expect(readManifest(root).manifest.worktrees).toHaveLength(2);
   });
 
-  test("removes dirty worktrees with force", () => {
+  test("removes dirty worktrees with force", async () => {
     const { root, feature } = setupRepo();
     writeFileSync(join(feature, "README.md"), "modified\n");
     writeFileSync(join(feature, "untracked.txt"), "untracked\n");
-    expect(removeWorktree(root, feature, { force: true }).forceUsed).toBe(true);
+    expect(
+      (await removeWorktree(root, feature, { force: true })).forceUsed,
+    ).toBe(true);
     expect(existsSync(feature)).toBe(false);
     expect(readManifest(root).manifest.worktrees).toHaveLength(1);
   });
 
-  test("safely deletes a merged branch when requested", () => {
+  test("safely deletes a merged branch when requested", async () => {
     const { root, main } = setupRepo();
-    const result = removeWorktree(root, "feature/demo", { deleteBranch: true });
+    const result = await removeWorktree(root, "feature/demo", {
+      deleteBranch: true,
+    });
     expect(result.branchDeleted).toBe(true);
     expect(result.branchDeletionRequested).toBe(true);
     expect(git(main, "branch", "--list", "feature/demo")).toBe("");
   });
 
-  test("retains an unmerged branch and repairs the manifest after removal", () => {
+  test("retains an unmerged branch and repairs the manifest after removal", async () => {
     const { root, main, feature } = setupRepo();
     writeFileSync(join(feature, "feature.txt"), "feature change\n");
     git(feature, "add", "feature.txt");
     git(feature, "commit", "-m", "Feature change");
-    expect(() =>
+    await expect(
       removeWorktree(root, "feature/demo", { deleteBranch: true, force: true }),
-    ).toThrow(/branch deletion failed/);
+    ).rejects.toThrow(/branch deletion failed/);
     expect(existsSync(feature)).toBe(false);
     expect(readManifest(root).manifest.worktrees).toHaveLength(1);
     expect(git(main, "branch", "--list", "feature/demo")).toContain(
@@ -148,10 +156,10 @@ describe("removeWorktree", () => {
     );
   });
 
-  test("repairs a manually deleted directory and retains its branch", () => {
+  test("repairs a manually deleted directory and retains its branch", async () => {
     const { root, main, feature } = setupRepo();
     rmSync(feature, { recursive: true });
-    const result = removeWorktree(root, "feature/demo", { force: true });
+    const result = await removeWorktree(root, "feature/demo", { force: true });
     expect(result.alreadyMissing).toBe(true);
     expect(result.forceUsed).toBe(false);
     expect(readManifest(root).manifest.worktrees).toHaveLength(1);
@@ -161,18 +169,18 @@ describe("removeWorktree", () => {
     );
   });
 
-  test("prunes missing worktrees before requested branch deletion", () => {
+  test("prunes missing worktrees before requested branch deletion", async () => {
     const { root, main, feature } = setupRepo();
     rmSync(feature, { recursive: true });
     expect(
-      removeWorktree(root, "feature/demo", { deleteBranch: true })
+      (await removeWorktree(root, "feature/demo", { deleteBranch: true }))
         .branchDeleted,
     ).toBe(true);
     expect(git(main, "branch", "--list", "feature/demo")).toBe("");
     expect(readManifest(root).manifest.worktrees).toHaveLength(1);
   });
 
-  test("preserves remaining exclusions and refreshes newly discovered worktrees", () => {
+  test("preserves remaining exclusions and refreshes newly discovered worktrees", async () => {
     const { root, main } = setupRepo();
     const other = join(root, "other");
     git(main, "worktree", "add", "-b", "other", other);
@@ -180,7 +188,7 @@ describe("removeWorktree", () => {
     manifest.worktrees[0].ignoreShared = ["node_modules", ".env"];
     manifest.shared = { ".env": ".env" };
     writeManifest(manifestPath, manifest);
-    removeWorktree(root, "feature/demo");
+    await removeWorktree(root, "feature/demo");
     const updated = readManifest(root).manifest;
     expect(updated.worktrees).toHaveLength(2);
     expect(
@@ -190,13 +198,13 @@ describe("removeWorktree", () => {
     expect(updated.shared).toEqual({ ".env": ".env" });
   });
 
-  test("does not delete the branch or rewrite the manifest when removal fails", () => {
+  test("does not delete the branch or rewrite the manifest when removal fails", async () => {
     const { root, main, feature } = setupRepo();
     const before = readFileSync(join(root, "workforest.yaml"), "utf8");
     git(main, "worktree", "lock", feature);
-    expect(() =>
+    await expect(
       removeWorktree(root, "feature/demo", { deleteBranch: true }),
-    ).toThrow(/locked/);
+    ).rejects.toThrow(/locked/);
     expect(existsSync(feature)).toBe(true);
     expect(git(main, "branch", "--list", "feature/demo")).toContain(
       "feature/demo",
@@ -204,9 +212,9 @@ describe("removeWorktree", () => {
     expect(readFileSync(join(root, "workforest.yaml"), "utf8")).toBe(before);
   });
 
-  test("rejects unknown and ambiguous targets before changing the repository", () => {
+  test("rejects unknown and ambiguous targets before changing the repository", async () => {
     const { root, main, feature } = setupRepo();
-    expect(() => removeWorktree(root, "not-present")).toThrow(
+    await expect(removeWorktree(root, "not-present")).rejects.toThrow(
       /no worktree matches/i,
     );
     const { manifestPath, manifest } = readManifest(root);
@@ -219,7 +227,7 @@ describe("removeWorktree", () => {
     writeManifest(manifestPath, manifest);
     let errorMessage = "";
     try {
-      removeWorktree(root, "feature/demo");
+      await removeWorktree(root, "feature/demo");
     } catch (error) {
       errorMessage = (error as Error).message;
     }
@@ -230,19 +238,21 @@ describe("removeWorktree", () => {
     expect(discoverRepo(main).activeWorktrees).toHaveLength(2);
   });
 
-  test("requires a manifest", () => {
+  test("requires a manifest", async () => {
     const root = mkdtempSync(join(tmpdir(), "workforest-remove-missing-"));
     tempDirs.push(root);
-    expect(() => removeWorktree(root, "feature/demo")).toThrow(/manifest/i);
+    await expect(removeWorktree(root, "feature/demo")).rejects.toThrow(
+      /manifest/i,
+    );
   });
 
-  test("removes detached worktrees without attempting branch deletion", () => {
+  test("removes detached worktrees without attempting branch deletion", async () => {
     const { root, main, feature } = setupRepo();
     git(feature, "checkout", "--detach");
     const { manifestPath, manifest } = readManifest(root);
     manifest.worktrees = discoverRepo(main).activeWorktrees;
     writeManifest(manifestPath, manifest);
-    const result = removeWorktree(root, feature, { deleteBranch: true });
+    const result = await removeWorktree(root, feature, { deleteBranch: true });
     expect(result.branchName).toBeNull();
     expect(result.branchDeletionRequested).toBe(true);
     expect(result.branchDeleted).toBe(false);
