@@ -52,6 +52,28 @@ export function discoverHooks(
   });
 }
 
+interface HookProcess {
+  pid: number;
+  parent: number;
+  group: number;
+}
+
+function inspectProcesses(): HookProcess[] | undefined {
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid="], {
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) return undefined;
+  return result.stdout
+    .trim()
+    .split("\n")
+    .flatMap((line) => {
+      const [pid, parent, group] = line.trim().split(/\s+/).map(Number);
+      if (!pid || parent === undefined || !group || pid === result.pid)
+        return [];
+      return [{ pid, parent, group }];
+    });
+}
+
 export async function runHooks(
   context: HookContext,
   script?: string,
@@ -89,6 +111,16 @@ export async function runHooks(
         new Error(
           `Hook ${context.event} '${hook.name}' failed for ${context.worktreePath}: ${reason}. Earlier hook effects may remain. Correct the script and rerun wf hooks run ${context.event} ${context.worktreePath} --script ${hook.name}.`,
         );
+      const initialProcesses =
+        process.platform === "win32" ? undefined : inspectProcesses();
+      const ownsGroup = initialProcesses?.some(
+        ({ pid, group }) => pid === process.pid && group === process.pid,
+      );
+      const initialPeers = new Set(
+        initialProcesses
+          ?.filter(({ group }) => group === process.pid)
+          .map(({ pid }) => pid),
+      );
       let child;
       try {
         child = spawn(hook.path, [], {
@@ -122,26 +154,47 @@ export async function runHooks(
       let cancellationDetail = "";
       const captureDescendants = () => {
         if (process.platform === "win32" || !child.pid) return;
-        const result = spawnSync("ps", ["-axo", "pid=,ppid="], {
-          encoding: "utf8",
-        });
-        if (result.error || result.status !== 0) {
+        const entries = inspectProcesses();
+        if (!entries) {
           cancellationDetail =
             "; could not inspect hook descendants for cancellation";
           return;
         }
-        const entries = result.stdout
-          .trim()
-          .split("\n")
-          .map((line) => line.trim().split(/\s+/).map(Number));
+        // Terminal Ctrl-C can terminate the hook before our signal handler runs.
+        // Its orphaned children retain the foreground job's group. Only use that
+        // identity when wf owns the job; preserve every pre-existing pipeline peer.
+        if (ownsGroup) {
+          const parentsByPid = new Map(
+            entries.map(({ pid, parent }) => [pid, parent]),
+          );
+          const belongsToPeer = (pid: number) => {
+            const visited = new Set<number>();
+            let parent = parentsByPid.get(pid);
+            while (parent && !visited.has(parent)) {
+              if (parent !== process.pid && initialPeers.has(parent))
+                return true;
+              visited.add(parent);
+              parent = parentsByPid.get(parent);
+            }
+            return false;
+          };
+          for (const { pid, group } of entries) {
+            if (
+              group === process.pid &&
+              !initialPeers.has(pid) &&
+              !belongsToPeer(pid)
+            )
+              descendants.add(pid);
+          }
+        }
         const parents = new Set([child.pid]);
         let found = true;
         while (found) {
           found = false;
-          for (const [pid, parent] of entries) {
-            if (parents.has(parent!) && !parents.has(pid!)) {
-              parents.add(pid!);
-              descendants.add(pid!);
+          for (const { pid, parent } of entries) {
+            if (parents.has(parent) && !parents.has(pid)) {
+              parents.add(pid);
+              descendants.add(pid);
               found = true;
             }
           }
@@ -178,7 +231,10 @@ export async function runHooks(
         cleanup();
         reject(failure(error.message));
       });
-      child.once("close", (code, signal) => {
+      child.once("close", async (code, signal) => {
+        // A terminal signal and hook exit can arrive together. Let pending signal
+        // handlers run before accepting success or launching another hook.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         if (cancelled) kill("SIGKILL");
         cleanup();
         if (cancelled || code !== 0)

@@ -65,6 +65,63 @@ function cli(cwd: string, ...args: string[]) {
   );
 }
 
+function terminalCli(
+  cwd: string,
+  target: string,
+  onOutput: string,
+  beforeExec = "",
+) {
+  return Bun.spawnSync(
+    [
+      "python3",
+      "-c",
+      `import errno, os, pty, select, signal, sys, time
+pid, fd = pty.fork()
+if pid == 0:
+${beforeExec
+  .split("\n")
+  .map((line) => `    ${line}`)
+  .join("\n")}
+    os.execv(sys.argv[1], sys.argv[1:])
+output = bytearray()
+state = {}
+try:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not select.select([fd], [], [], 0.1)[0]:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError as error:
+            if error.errno == errno.EIO:
+                break
+            raise
+        if not chunk:
+            break
+        output.extend(chunk)
+${onOutput
+  .split("\n")
+  .map((line) => `        ${line}`)
+  .join("\n")}
+    else:
+        os.kill(pid, 9)
+    _, status = os.waitpid(pid, 0)
+    sys.stdout.buffer.write(output)
+    sys.exit(os.waitstatus_to_exitcode(status))
+finally:
+    os.close(fd)
+`,
+      process.execPath,
+      join(import.meta.dir, "../src/cli.ts"),
+      "hooks",
+      "run",
+      "post-create",
+      target,
+    ],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  );
+}
+
 test("list shared hooks from a worktree without running them or rewriting inventory", () => {
   const { root, main } = fixture();
   const before = readFileSync(join(root, "workforest.yaml"), "utf8");
@@ -203,52 +260,84 @@ test("interactive hooks retain their controlling terminal", () => {
     "terminal",
     '#!/bin/sh\nset -e\nprintf "tty-prompt:" > /dev/tty\nread value < /dev/tty\nprintf "tty-response:%s\\n" "$value"\n',
   );
-  const result = Bun.spawnSync(
-    [
-      "python3",
-      "-c",
-      `import errno, os, pty, select, sys, time
-pid, fd = pty.fork()
-if pid == 0:
-    os.execv(sys.argv[1], sys.argv[1:])
-output = bytearray()
-answered = False
-try:
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        if not select.select([fd], [], [], 0.1)[0]:
-            continue
-        try:
-            chunk = os.read(fd, 4096)
-        except OSError as error:
-            if error.errno == errno.EIO:
-                break
-            raise
-        if not chunk:
-            break
-        output.extend(chunk)
-        if not answered and b"tty-prompt:" in output:
-            os.write(fd, b"hello-terminal\\n")
-            answered = True
-    else:
-        os.kill(pid, 9)
-    _, status = os.waitpid(pid, 0)
-    sys.stdout.buffer.write(output)
-    sys.exit(os.waitstatus_to_exitcode(status))
-finally:
-    os.close(fd)
-`,
-      process.execPath,
-      join(import.meta.dir, "../src/cli.ts"),
-      "hooks",
-      "run",
-      "post-create",
-      main,
-    ],
-    { cwd: root, stdout: "pipe", stderr: "pipe" },
+  const result = terminalCli(
+    root,
+    main,
+    `if not state.get("answered") and b"tty-prompt:" in output:
+    os.write(fd, b"hello-terminal\\n")
+    state["answered"] = True`,
   );
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("tty-response:hello-terminal");
+});
+
+test("terminal Ctrl-C stops descendants even when the hook exits immediately", async () => {
+  const { root, main } = fixture();
+  script(
+    root,
+    "post-create",
+    "10-wait",
+    '#!/bin/sh\ntrap "echo hook-exited; exit 0" INT TERM\n(sh -c \'trap "" INT TERM HUP; echo cancel-ready; sleep 2; touch "$WF_MANIFEST_DIR/delayed"\') &\nwait\n',
+  );
+  script(
+    root,
+    "post-create",
+    "20-later",
+    '#!/bin/sh\ntouch "$WF_MANIFEST_DIR/later"\n',
+  );
+  // Delay only CLI signal handling to reproduce the hook exiting first;
+  // do not grant the runner extra time to observe the child's ancestry.
+  const result = terminalCli(
+    root,
+    main,
+    `if not state.get("interrupted") and b"cancel-ready" in output:
+    os.kill(pid, signal.SIGSTOP)
+    os.write(fd, b"\\x03")
+    state["interrupted"] = True
+if state.get("interrupted") and b"hook-exited" in output:
+    os.kill(pid, signal.SIGCONT)`,
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout.toString()).toContain("cancelled by SIGINT");
+  expect(existsSync(join(root, "later"))).toBe(false);
+  await Bun.sleep(2200);
+  expect(existsSync(join(root, "delayed"))).toBe(false);
+}, 7000);
+
+test("terminal cancellation preserves a pre-existing pipeline peer and its new children", () => {
+  const { root, main } = fixture();
+  script(
+    root,
+    "post-create",
+    "wait",
+    '#!/bin/sh\ntrap "exit 0" INT TERM\ntouch "$WF_MANIFEST_DIR/start-peer"\necho cancel-ready\nwhile :; do sleep 1; done\n',
+  );
+  const result = terminalCli(
+    root,
+    main,
+    `if not state.get("interrupted") and b"cancel-ready" in output and b"peer-ready" in output:
+    os.write(fd, b"\\x03")
+    state["interrupted"] = True`,
+    `from pathlib import Path
+peer = os.fork()
+if peer == 0:
+    for sig in [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]:
+        signal.signal(sig, signal.SIG_IGN)
+    root = Path(sys.argv[-1]).parent
+    while not (root / "start-peer").exists():
+        time.sleep(0.01)
+    descendant = os.fork()
+    if descendant == 0:
+        os.write(1, b"peer-ready\\n")
+        time.sleep(2)
+        (root / "peer-survived").write_text("survived")
+        os._exit(0)
+    os.waitpid(descendant, 0)
+    os._exit(0)`,
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout.toString()).toContain("cancelled by SIGINT");
+  expect(readFileSync(join(root, "peer-survived"), "utf8")).toBe("survived");
 });
 
 test("interrupting only the CLI stops the active hook and descendants before later scripts", async () => {
