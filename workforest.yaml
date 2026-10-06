@@ -1,0 +1,11 @@
+version: 1
+repo:
+  name: workforest
+  root: /home/nicolas/prog/workforest
+worktrees:
+  - path: /home/nicolas/prog/workforest
+    branch: main
+    isMain: true
+shared:
+  # source path in the main worktree: target path to create in other worktrees
+  workforest.yaml: workforest.yaml
