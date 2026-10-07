@@ -1,0 +1,3 @@
+[submodule "workforest.wiki"]
+	path = workforest.wiki
+	url = ./workforest.wiki
