@@ -1,4 +1,4 @@
-<img src="resources/logo-xl.png" alt="Workforest logo" />
+<img src="resources/logo-xl.jpg" alt="Workforest logo" />
 
 # workforest
 
